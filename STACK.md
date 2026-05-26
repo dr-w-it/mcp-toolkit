@@ -21,6 +21,7 @@ the first implementation pass:
 
 - TypeScript for shared product code
 - React for user interfaces
+- npm workspaces for the initial monorepo workflow
 - Vite for the first web UI and local development loop
 - Node.js and TypeScript for the local Inspector Runtime
 - Fastify, Hono, or another small HTTP framework for the runtime API

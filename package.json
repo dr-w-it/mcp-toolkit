@@ -1,0 +1,26 @@
+{
+  "name": "@dr-w/mcp-toolkit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Developer-first toolkit for inspecting, debugging, and securing MCP servers.",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:packages && npm run build:apps",
+    "build:apps": "npm run build --workspace @dr-w/inspector-runtime && npm run build --workspace @dr-w/inspector-web",
+    "build:packages": "npm run build --workspace @dr-w/core && npm run build --workspace @dr-w/mcp-client && npm run build --workspace @dr-w/ui",
+    "dev": "npm run dev --workspaces --if-present",
+    "typecheck": "npm run typecheck:packages && npm run typecheck:apps",
+    "typecheck:apps": "npm run typecheck --workspace @dr-w/inspector-runtime && npm run typecheck --workspace @dr-w/inspector-web",
+    "typecheck:packages": "npm run typecheck --workspace @dr-w/core && npm run typecheck --workspace @dr-w/mcp-client && npm run typecheck --workspace @dr-w/ui"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "typescript": "latest"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@dr-w/inspector-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@dr-w/core": "0.0.0",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest"
+  }
+}

@@ -98,9 +98,47 @@ Project documentation lives in `docs/`.
 
 ## Current Status
 
-The project is in the planning and foundation phase.
+The project is in the early scaffold phase.
 
-There are no runtime features yet.
+The initial local product is being built as an npm workspace with:
+
+- `apps/inspector-web`
+- `apps/inspector-runtime`
+- `packages/core`
+- `packages/mcp-client`
+- `packages/ui`
+
+The current runtime and UI still use mock data while the first MCP integration
+contracts are defined.
+
+## Development
+
+Install dependencies:
+
+```sh
+npm install
+```
+
+Run all development scripts exposed by workspaces:
+
+```sh
+npm run dev
+```
+
+Typecheck all workspaces:
+
+```sh
+npm run typecheck
+```
+
+Development shortcuts are available through `dev.sh`:
+
+```sh
+./dev.sh server
+./dev.sh runtime
+./dev.sh local
+./dev.sh check
+```
 
 ## Strategic Positioning
 

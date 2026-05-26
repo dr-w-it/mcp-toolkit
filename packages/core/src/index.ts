@@ -1,0 +1,81 @@
+export type ConnectionTransport = "stdio" | "http" | "sse";
+
+export interface ConnectionProfile {
+  id: string;
+  name: string;
+  transport: ConnectionTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  headers?: Record<string, string>;
+  env?: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema?: JsonObject;
+}
+
+export interface ResourceDefinition {
+  uri: string;
+  name?: string;
+  mimeType?: string;
+  description?: string;
+}
+
+export interface PromptDefinition {
+  name: string;
+  description?: string;
+  arguments?: PromptArgument[];
+}
+
+export interface PromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface CapabilitySummary {
+  connectionId: string;
+  tools: ToolDefinition[];
+  resources: ResourceDefinition[];
+  prompts: PromptDefinition[];
+}
+
+export interface ToolCallRequest {
+  id: string;
+  connectionId: string;
+  toolName: string;
+  input: JsonValue;
+  createdAt: string;
+}
+
+export interface ToolCallResponse {
+  requestId: string;
+  status: "success" | "error";
+  output?: JsonValue;
+  error?: string;
+  rawRequest?: JsonValue;
+  rawResponse?: JsonValue;
+  durationMs: number;
+  completedAt: string;
+}
+
+export interface TraceEntry {
+  id: string;
+  connectionId: string;
+  operation: string;
+  status: "success" | "error";
+  startedAt: string;
+  durationMs: number;
+  error?: string;
+}
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export interface JsonObject {
+  [key: string]: JsonValue;
+}

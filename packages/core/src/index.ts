@@ -71,7 +71,35 @@ export interface TraceEntry {
   status: "success" | "error";
   startedAt: string;
   durationMs: number;
+  requestId?: string;
   error?: string;
+}
+
+export interface RuntimeHealthResponse {
+  ok: true;
+  service: "inspector-runtime";
+  mode: "local";
+}
+
+export interface ListConnectionsResponse {
+  connections: ConnectionProfile[];
+}
+
+export type GetConnectionCapabilitiesResponse = CapabilitySummary;
+
+export interface ListHistoryResponse {
+  traces: TraceEntry[];
+}
+
+export interface ReplayToolCallRequest {
+  requestId: string;
+}
+
+export interface ReplayToolCallResponse {
+  replayedFromRequestId: string;
+  request: ToolCallRequest;
+  response: ToolCallResponse;
+  trace: TraceEntry;
 }
 
 export type JsonPrimitive = string | number | boolean | null;

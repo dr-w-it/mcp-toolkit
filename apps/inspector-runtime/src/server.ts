@@ -1,5 +1,16 @@
-import { createServer, type ServerResponse } from "node:http";
-import type { CapabilitySummary, ConnectionProfile, TraceEntry } from "@dr-w/core";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type {
+  CapabilitySummary,
+  ConnectionProfile,
+  ListConnectionsResponse,
+  ListHistoryResponse,
+  ReplayToolCallRequest,
+  ReplayToolCallResponse,
+  RuntimeHealthResponse,
+  ToolCallRequest,
+  ToolCallResponse,
+  TraceEntry,
+} from "@dr-w/core";
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
@@ -45,7 +56,49 @@ const traces: TraceEntry[] = [
     startedAt: new Date().toISOString(),
     durationMs: 1,
   },
+  {
+    id: "trace-002",
+    connectionId: "local-filesystem",
+    operation: "tools/call read_file",
+    status: "success",
+    startedAt: new Date().toISOString(),
+    durationMs: 14,
+    requestId: "request-001",
+  },
 ];
+
+const sampleToolCallRequest: ToolCallRequest = {
+  id: "request-001",
+  connectionId: "local-filesystem",
+  toolName: "read_file",
+  input: { path: "./README.md" },
+  createdAt: new Date().toISOString(),
+};
+
+const sampleToolCallResponse: ToolCallResponse = {
+  requestId: sampleToolCallRequest.id,
+  status: "success",
+  output: {
+    content: "MCP Toolkit is a developer-focused repository...",
+  },
+  rawRequest: {
+    id: sampleToolCallRequest.id,
+    connectionId: sampleToolCallRequest.connectionId,
+    toolName: sampleToolCallRequest.toolName,
+    input: sampleToolCallRequest.input,
+    createdAt: sampleToolCallRequest.createdAt,
+  },
+  rawResponse: {
+    content: [
+      {
+        type: "text",
+        text: "MCP Toolkit is a developer-focused repository...",
+      },
+    ],
+  },
+  durationMs: 14,
+  completedAt: new Date().toISOString(),
+};
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, {
@@ -57,7 +110,32 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body, null, 2));
 }
 
-const server = createServer((request, response) => {
+function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+
+    request.on("end", () => {
+      if (!body.trim()) {
+        resolve({});
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    request.on("error", reject);
+  });
+}
+
+const server = createServer(async (request, response) => {
   if (!request.url) {
     sendJson(response, 400, { error: "Missing request URL" });
     return;
@@ -71,16 +149,20 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, `http://${request.headers.host ?? `${host}:${port}`}`);
 
   if (request.method === "GET" && url.pathname === "/health") {
-    sendJson(response, 200, {
+    const body: RuntimeHealthResponse = {
       ok: true,
       service: "inspector-runtime",
       mode: "local",
-    });
+    };
+
+    sendJson(response, 200, body);
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/connections") {
-    sendJson(response, 200, { connections });
+    const body: ListConnectionsResponse = { connections };
+
+    sendJson(response, 200, body);
     return;
   }
 
@@ -90,7 +172,50 @@ const server = createServer((request, response) => {
   }
 
   if (request.method === "GET" && url.pathname === "/history") {
-    sendJson(response, 200, { traces });
+    const body: ListHistoryResponse = { traces };
+
+    sendJson(response, 200, body);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/replay") {
+    let body: unknown;
+
+    try {
+      body = await readJsonBody(request);
+    } catch {
+      sendJson(response, 400, { error: "Invalid JSON request body" });
+      return;
+    }
+
+    const replayRequest = body as Partial<ReplayToolCallRequest>;
+
+    if (replayRequest.requestId !== sampleToolCallRequest.id) {
+      sendJson(response, 404, { error: "Replayable request not found" });
+      return;
+    }
+
+    const trace: TraceEntry = {
+      id: "trace-003",
+      connectionId: sampleToolCallRequest.connectionId,
+      operation: `replay ${sampleToolCallRequest.toolName}`,
+      status: "success",
+      startedAt: new Date().toISOString(),
+      durationMs: sampleToolCallResponse.durationMs,
+      requestId: sampleToolCallRequest.id,
+    };
+
+    const replayResponse: ReplayToolCallResponse = {
+      replayedFromRequestId: sampleToolCallRequest.id,
+      request: sampleToolCallRequest,
+      response: {
+        ...sampleToolCallResponse,
+        completedAt: new Date().toISOString(),
+      },
+      trace,
+    };
+
+    sendJson(response, 200, replayResponse);
     return;
   }
 

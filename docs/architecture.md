@@ -76,6 +76,9 @@ Documentation lives in `docs/`.
 Architecture, product decisions, and future technical notes should be documented
 here before they turn into implementation complexity.
 
+The local Inspector Runtime API contract is documented in
+[`docs/runtime-api.md`](runtime-api.md).
+
 ## Proposed MVP Architecture
 
 The first implementation should keep MCP Inspector web-first, locally runnable,

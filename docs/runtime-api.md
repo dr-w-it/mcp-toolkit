@@ -1,0 +1,187 @@
+# Local Runtime API
+
+The Inspector Runtime API is the first stable contract between
+`apps/inspector-web` and `apps/inspector-runtime` for local mode.
+
+The contract is local-first and account-free. It does not introduce users,
+organizations, workspaces, billing, hosted sessions, or SaaS-only concepts.
+
+## Base Assumptions
+
+- The local runtime binds to `127.0.0.1` by default.
+- The web UI chooses the runtime base URL through local development or
+  deployment configuration.
+- Responses use JSON with `Content-Type: application/json`.
+- Request and response TypeScript shapes live in `packages/core`.
+- Timestamps are ISO 8601 strings.
+
+## Health
+
+```http
+GET /health
+```
+
+Response type: `RuntimeHealthResponse`
+
+```json
+{
+  "ok": true,
+  "service": "inspector-runtime",
+  "mode": "local"
+}
+```
+
+## Connections
+
+```http
+GET /connections
+```
+
+Response type: `ListConnectionsResponse`
+
+```json
+{
+  "connections": [
+    {
+      "id": "local-filesystem",
+      "name": "Local filesystem server",
+      "transport": "stdio",
+      "command": "npx @modelcontextprotocol/server-filesystem ./",
+      "createdAt": "2026-05-26T08:30:00.000Z",
+      "updatedAt": "2026-05-26T08:30:00.000Z"
+    }
+  ]
+}
+```
+
+Connection profiles may include `args`, `url`, `headers`, and `env` when the
+transport needs them. Local mode should keep these values local to the runtime.
+
+## Capabilities
+
+```http
+GET /connections/:connectionId/capabilities
+```
+
+Response type: `GetConnectionCapabilitiesResponse`
+
+```json
+{
+  "connectionId": "local-filesystem",
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read a file from an allowed local directory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": ["path"]
+      }
+    }
+  ],
+  "resources": [],
+  "prompts": []
+}
+```
+
+Capabilities describe what the connected MCP server exposes. The response keeps
+tools, resources, and prompts grouped under a single connection id so the web UI
+can render a consistent inspector view.
+
+## History
+
+```http
+GET /history
+```
+
+Response type: `ListHistoryResponse`
+
+```json
+{
+  "traces": [
+    {
+      "id": "trace-002",
+      "connectionId": "local-filesystem",
+      "operation": "tools/call read_file",
+      "status": "success",
+      "startedAt": "2026-05-26T08:41:12.000Z",
+      "durationMs": 118,
+      "requestId": "request-001"
+    }
+  ]
+}
+```
+
+History entries are runtime-local traces. A trace can include `requestId` when
+the operation can be replayed.
+
+## Replay
+
+```http
+POST /replay
+Content-Type: application/json
+```
+
+Request type: `ReplayToolCallRequest`
+
+```json
+{
+  "requestId": "request-001"
+}
+```
+
+Response type: `ReplayToolCallResponse`
+
+```json
+{
+  "replayedFromRequestId": "request-001",
+  "request": {
+    "id": "request-001",
+    "connectionId": "local-filesystem",
+    "toolName": "read_file",
+    "input": {
+      "path": "./README.md"
+    },
+    "createdAt": "2026-05-26T08:41:12.000Z"
+  },
+  "response": {
+    "requestId": "request-001",
+    "status": "success",
+    "output": {
+      "content": "MCP Toolkit is a developer-focused repository..."
+    },
+    "durationMs": 118,
+    "completedAt": "2026-05-26T08:41:12.118Z"
+  },
+  "trace": {
+    "id": "trace-003",
+    "connectionId": "local-filesystem",
+    "operation": "replay read_file",
+    "status": "success",
+    "startedAt": "2026-05-26T08:42:00.000Z",
+    "durationMs": 118,
+    "requestId": "request-001"
+  }
+}
+```
+
+Replay starts from a previous request id and returns the original request shape,
+the new response, and the trace created by the replay operation.
+
+## Error Shape
+
+Runtime endpoints should return this minimal error shape until richer domain
+errors are needed:
+
+```json
+{
+  "error": "Replayable request not found"
+}
+```
+
+Use appropriate HTTP status codes for transport-level failures such as invalid
+JSON, missing records, or unsupported endpoints.

@@ -179,6 +179,7 @@ MCP Toolkit is:
 - [Ideas](IDEAS.md)
 - [Stack](STACK.md)
 - [Architecture](docs/architecture.md)
+- [Local Runtime API](docs/runtime-api.md)
 - [Branding](docs/branding.md)
 - [Product Decisions](docs/product-decisions.md)
 - [Local Deployment](docs/local-deployment.md)

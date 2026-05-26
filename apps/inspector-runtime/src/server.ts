@@ -14,6 +14,7 @@ import type {
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
+const allowedWebOrigins = new Set(["http://127.0.0.1:5173", "http://localhost:5173"]);
 
 const connections: ConnectionProfile[] = [
   {
@@ -100,12 +101,23 @@ const sampleToolCallResponse: ToolCallResponse = {
   completedAt: new Date().toISOString(),
 };
 
-function sendJson(response: ServerResponse, status: number, body: unknown) {
+function getAllowedOrigin(request: IncomingMessage) {
+  const origin = request.headers.origin;
+
+  if (origin && allowedWebOrigins.has(origin)) {
+    return origin;
+  }
+
+  return "http://127.0.0.1:5173";
+}
+
+function sendJson(request: IncomingMessage, response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, {
     "Access-Control-Allow-Headers": "content-type",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Origin": "http://127.0.0.1:5173",
+    "Access-Control-Allow-Origin": getAllowedOrigin(request),
     "Content-Type": "application/json; charset=utf-8",
+    Vary: "Origin",
   });
   response.end(JSON.stringify(body, null, 2));
 }
@@ -137,12 +149,12 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
 
 const server = createServer(async (request, response) => {
   if (!request.url) {
-    sendJson(response, 400, { error: "Missing request URL" });
+    sendJson(request, response, 400, { error: "Missing request URL" });
     return;
   }
 
   if (request.method === "OPTIONS") {
-    sendJson(response, 204, {});
+    sendJson(request, response, 204, {});
     return;
   }
 
@@ -155,26 +167,26 @@ const server = createServer(async (request, response) => {
       mode: "local",
     };
 
-    sendJson(response, 200, body);
+    sendJson(request, response, 200, body);
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/connections") {
     const body: ListConnectionsResponse = { connections };
 
-    sendJson(response, 200, body);
+    sendJson(request, response, 200, body);
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/connections/local-filesystem/capabilities") {
-    sendJson(response, 200, capabilities);
+    sendJson(request, response, 200, capabilities);
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/history") {
     const body: ListHistoryResponse = { traces };
 
-    sendJson(response, 200, body);
+    sendJson(request, response, 200, body);
     return;
   }
 
@@ -184,14 +196,14 @@ const server = createServer(async (request, response) => {
     try {
       body = await readJsonBody(request);
     } catch {
-      sendJson(response, 400, { error: "Invalid JSON request body" });
+      sendJson(request, response, 400, { error: "Invalid JSON request body" });
       return;
     }
 
     const replayRequest = body as Partial<ReplayToolCallRequest>;
 
     if (replayRequest.requestId !== sampleToolCallRequest.id) {
-      sendJson(response, 404, { error: "Replayable request not found" });
+      sendJson(request, response, 404, { error: "Replayable request not found" });
       return;
     }
 
@@ -215,11 +227,11 @@ const server = createServer(async (request, response) => {
       trace,
     };
 
-    sendJson(response, 200, replayResponse);
+    sendJson(request, response, 200, replayResponse);
     return;
   }
 
-  sendJson(response, 404, { error: "Not found" });
+  sendJson(request, response, 404, { error: "Not found" });
 });
 
 server.listen(port, host, () => {

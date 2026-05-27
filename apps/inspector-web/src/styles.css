@@ -379,13 +379,34 @@ input::placeholder {
 }
 
 .capability-card {
+  display: grid;
+  gap: 8px;
+  width: 100%;
   border: 1px solid #2a2f3a;
   border-radius: 8px;
+  background: #11141a;
   padding: 14px;
+  text-align: left;
 }
 
 .capability-card p {
-  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.capability-card small {
+  color: #8b7cff;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.empty-state {
+  border: 1px dashed #2a2f3a;
+  border-radius: 8px;
+  padding: 18px;
+  color: #9aa4b2;
+  background: #11141a;
+  font-size: 13px;
   line-height: 1.5;
 }
 

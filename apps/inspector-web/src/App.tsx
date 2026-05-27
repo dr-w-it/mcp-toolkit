@@ -3,7 +3,11 @@ import type {
   CapabilitySummary,
   ConnectionProfile,
   ConnectionTransport,
+  JsonObject,
+  PromptDefinition,
+  ResourceDefinition,
   RuntimeHealthResponse,
+  ToolDefinition,
   TraceEntry,
 } from "@dr-w/core";
 import { localRuntimeClient } from "./localRuntimeClient";
@@ -12,6 +16,7 @@ import { capabilitySummary, connectionProfiles, traceEntries } from "./mockData"
 const runtimeBaseUrl = import.meta.env.VITE_INSPECTOR_RUNTIME_URL ?? "http://127.0.0.1:8787";
 
 type RuntimeDataSource = "runtime" | "mock";
+type CapabilityTab = "tools" | "resources" | "prompts" | "schemas";
 
 interface RuntimeData {
   capabilities: CapabilitySummary;
@@ -29,10 +34,24 @@ interface KeyValueRow {
   value: string;
 }
 
+interface SchemaSummary {
+  id: string;
+  name: string;
+  schema: JsonObject;
+  source: string;
+}
+
 const transportOptions: { label: string; value: ConnectionTransport }[] = [
   { label: "stdio", value: "stdio" },
   { label: "HTTP", value: "http" },
   { label: "SSE", value: "sse" },
+];
+
+const capabilityTabs: { id: CapabilityTab; label: string }[] = [
+  { id: "tools", label: "Tools" },
+  { id: "resources", label: "Resources" },
+  { id: "prompts", label: "Prompts" },
+  { id: "schemas", label: "Schemas" },
 ];
 
 function getErrorMessage(error: unknown) {
@@ -55,6 +74,69 @@ function rowsToRecord(rows: KeyValueRow[]) {
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+function createEmptyCapabilitySummary(connectionId: string): CapabilitySummary {
+  return {
+    connectionId,
+    prompts: [],
+    resources: [],
+    tools: [],
+  };
+}
+
+function getSchemaSummaries(capabilities: CapabilitySummary): SchemaSummary[] {
+  return capabilities.tools
+    .filter((tool): tool is ToolDefinition & { inputSchema: JsonObject } =>
+      Boolean(tool.inputSchema),
+    )
+    .map((tool) => ({
+      id: `tool:${tool.name}`,
+      name: `${tool.name} input`,
+      schema: tool.inputSchema,
+      source: `tool:${tool.name}`,
+    }));
+}
+
+function formatJson(value: unknown) {
+  return JSON.stringify(value ?? {}, null, 2);
+}
+
+function renderToolDetails(tool: ToolDefinition | undefined) {
+  if (!tool) {
+    return {};
+  }
+
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema ?? null,
+  };
+}
+
+function renderResourceDetails(resource: ResourceDefinition | undefined) {
+  if (!resource) {
+    return {};
+  }
+
+  return {
+    uri: resource.uri,
+    name: resource.name,
+    mimeType: resource.mimeType,
+    description: resource.description,
+  };
+}
+
+function renderPromptDetails(prompt: PromptDefinition | undefined) {
+  if (!prompt) {
+    return {};
+  }
+
+  return {
+    name: prompt.name,
+    description: prompt.description,
+    arguments: prompt.arguments ?? [],
+  };
+}
+
 export function App() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(
     connectionProfiles[0]?.id ?? null,
@@ -73,6 +155,15 @@ export function App() {
   const [transport, setTransport] = useState<ConnectionTransport>("stdio");
   const [command, setCommand] = useState("");
   const [url, setUrl] = useState("");
+  const [activeCapabilityTab, setActiveCapabilityTab] = useState<CapabilityTab>("tools");
+  const [selectedCapabilityKeys, setSelectedCapabilityKeys] = useState<
+    Record<CapabilityTab, string | null>
+  >({
+    prompts: null,
+    resources: null,
+    schemas: null,
+    tools: null,
+  });
   const [envRows, setEnvRows] = useState<KeyValueRow[]>([createBlankRow("env")]);
   const [headerRows, setHeaderRows] = useState<KeyValueRow[]>([
     createBlankRow("header"),
@@ -92,7 +183,48 @@ export function App() {
       connections[0],
     [connections, selectedConnectionId],
   );
-  const selectedTool = runtimeData.capabilities.tools[0];
+  const schemas = useMemo(
+    () => getSchemaSummaries(runtimeData.capabilities),
+    [runtimeData.capabilities],
+  );
+  const selectedTool =
+    runtimeData.capabilities.tools.find(
+      (tool) => tool.name === selectedCapabilityKeys.tools,
+    ) ?? runtimeData.capabilities.tools[0];
+  const selectedResource =
+    runtimeData.capabilities.resources.find(
+      (resource) => resource.uri === selectedCapabilityKeys.resources,
+    ) ?? runtimeData.capabilities.resources[0];
+  const selectedPrompt =
+    runtimeData.capabilities.prompts.find(
+      (prompt) => prompt.name === selectedCapabilityKeys.prompts,
+    ) ?? runtimeData.capabilities.prompts[0];
+  const selectedSchema =
+    schemas.find((schema) => schema.id === selectedCapabilityKeys.schemas) ?? schemas[0];
+  const detailTitle =
+    activeCapabilityTab === "tools"
+      ? selectedTool?.name ?? "No tools"
+      : activeCapabilityTab === "resources"
+        ? selectedResource?.name ?? selectedResource?.uri ?? "No resources"
+        : activeCapabilityTab === "prompts"
+          ? selectedPrompt?.name ?? "No prompts"
+          : selectedSchema?.name ?? "No schemas";
+  const detailEyebrow =
+    activeCapabilityTab === "tools"
+      ? "Tool definition"
+      : activeCapabilityTab === "resources"
+        ? "Resource definition"
+        : activeCapabilityTab === "prompts"
+          ? "Prompt definition"
+          : "Schema definition";
+  const detailPayload =
+    activeCapabilityTab === "tools"
+      ? renderToolDetails(selectedTool)
+      : activeCapabilityTab === "resources"
+        ? renderResourceDetails(selectedResource)
+        : activeCapabilityTab === "prompts"
+          ? renderPromptDetails(selectedPrompt)
+          : selectedSchema?.schema ?? {};
   const isRemoteTransport = transport === "http" || transport === "sse";
   const canCreateDraft =
     name.trim().length > 0 &&
@@ -117,7 +249,7 @@ export function App() {
         const nextSelectedConnectionId = nextConnections[0]?.id ?? null;
         const capabilities = nextSelectedConnectionId
           ? await localRuntimeClient.getCapabilities(nextSelectedConnectionId, signal)
-          : capabilitySummary;
+          : createEmptyCapabilitySummary("runtime");
 
         setSelectedConnectionId((currentId) =>
           currentId &&
@@ -220,7 +352,50 @@ export function App() {
 
     setDraftConnections((currentConnections) => [profile, ...currentConnections]);
     setSelectedConnectionId(profile.id);
+    setRuntimeData((currentData) => ({
+      ...currentData,
+      capabilities: createEmptyCapabilitySummary(profile.id),
+    }));
     resetForm();
+  }
+
+  async function handleSelectConnection(connectionId: string) {
+    setSelectedConnectionId(connectionId);
+
+    if (connectionId.startsWith("draft-")) {
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        capabilities: createEmptyCapabilitySummary(connectionId),
+      }));
+      return;
+    }
+
+    if (runtimeData.source !== "runtime") {
+      return;
+    }
+
+    setRuntimeData((currentData) => ({
+      ...currentData,
+      error: null,
+      isLoading: true,
+    }));
+
+    try {
+      const capabilities = await localRuntimeClient.getCapabilities(connectionId);
+
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        capabilities,
+        error: null,
+        isLoading: false,
+      }));
+    } catch (error) {
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        error: getErrorMessage(error),
+        isLoading: false,
+      }));
+    }
   }
 
   return (
@@ -262,7 +437,7 @@ export function App() {
                   connection.id === selectedConnection?.id ? "active" : ""
                 }`}
                 key={connection.id}
-                onClick={() => setSelectedConnectionId(connection.id)}
+                onClick={() => void handleSelectConnection(connection.id)}
                 type="button"
               >
                 <span>{connection.name}</span>
@@ -512,61 +687,169 @@ export function App() {
           <div className="inspector-grid">
             <section className="surface explorer">
               <div className="tabs">
-                <button className="selected" type="button">
-                  Tools
-                </button>
-                <button type="button">Resources</button>
-                <button type="button">Prompts</button>
-                <button type="button">Schemas</button>
+                {capabilityTabs.map((tab) => (
+                  <button
+                    aria-pressed={activeCapabilityTab === tab.id}
+                    className={activeCapabilityTab === tab.id ? "selected" : ""}
+                    key={tab.id}
+                    onClick={() => setActiveCapabilityTab(tab.id)}
+                    type="button"
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
 
               <div className="capability-list">
-                {runtimeData.capabilities.tools.map((tool) => (
-                  <article
-                    className={`capability-card ${
-                      tool.name === selectedTool?.name ? "selected" : ""
-                    }`}
-                    key={tool.name}
-                  >
-                    <h3>{tool.name}</h3>
-                    <p>{tool.description}</p>
-                  </article>
-                ))}
+                {activeCapabilityTab === "tools" ? (
+                  runtimeData.capabilities.tools.length > 0 ? (
+                    runtimeData.capabilities.tools.map((tool) => (
+                      <button
+                        className={`capability-card ${
+                          tool.name === selectedTool?.name ? "selected" : ""
+                        }`}
+                        key={tool.name}
+                        onClick={() =>
+                          setSelectedCapabilityKeys((keys) => ({
+                            ...keys,
+                            tools: tool.name,
+                          }))
+                        }
+                        type="button"
+                      >
+                        <h3>{tool.name}</h3>
+                        <p>{tool.description ?? "No description provided."}</p>
+                        <small>{tool.inputSchema ? "input schema" : "no schema"}</small>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="empty-state">No tools exposed by this connection.</div>
+                  )
+                ) : null}
+
+                {activeCapabilityTab === "resources" ? (
+                  runtimeData.capabilities.resources.length > 0 ? (
+                    runtimeData.capabilities.resources.map((resource) => (
+                      <button
+                        className={`capability-card ${
+                          resource.uri === selectedResource?.uri ? "selected" : ""
+                        }`}
+                        key={resource.uri}
+                        onClick={() =>
+                          setSelectedCapabilityKeys((keys) => ({
+                            ...keys,
+                            resources: resource.uri,
+                          }))
+                        }
+                        type="button"
+                      >
+                        <h3>{resource.name ?? resource.uri}</h3>
+                        <p>{resource.description ?? resource.uri}</p>
+                        <small>{resource.mimeType ?? "resource"}</small>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="empty-state">
+                      No resources exposed by this connection.
+                    </div>
+                  )
+                ) : null}
+
+                {activeCapabilityTab === "prompts" ? (
+                  runtimeData.capabilities.prompts.length > 0 ? (
+                    runtimeData.capabilities.prompts.map((prompt) => (
+                      <button
+                        className={`capability-card ${
+                          prompt.name === selectedPrompt?.name ? "selected" : ""
+                        }`}
+                        key={prompt.name}
+                        onClick={() =>
+                          setSelectedCapabilityKeys((keys) => ({
+                            ...keys,
+                            prompts: prompt.name,
+                          }))
+                        }
+                        type="button"
+                      >
+                        <h3>{prompt.name}</h3>
+                        <p>{prompt.description ?? "No description provided."}</p>
+                        <small>{prompt.arguments?.length ?? 0} arguments</small>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="empty-state">No prompts exposed by this connection.</div>
+                  )
+                ) : null}
+
+                {activeCapabilityTab === "schemas" ? (
+                  schemas.length > 0 ? (
+                    schemas.map((schema) => (
+                      <button
+                        className={`capability-card ${
+                          schema.id === selectedSchema?.id ? "selected" : ""
+                        }`}
+                        key={schema.id}
+                        onClick={() =>
+                          setSelectedCapabilityKeys((keys) => ({
+                            ...keys,
+                            schemas: schema.id,
+                          }))
+                        }
+                        type="button"
+                      >
+                        <h3>{schema.name}</h3>
+                        <p>{schema.source}</p>
+                        <small>json schema</small>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="empty-state">
+                      No schemas exposed by this connection.
+                    </div>
+                  )
+                ) : null}
               </div>
             </section>
 
             <section className="surface request-panel">
               <div className="panel-title">
                 <div>
-                  <p className="eyebrow">Tool call</p>
-                  <h2>{selectedTool?.name ?? "Select a tool"}</h2>
+                  <p className="eyebrow">{detailEyebrow}</p>
+                  <h2>{detailTitle}</h2>
                 </div>
-                <button className="primary" type="button">
+                <button
+                  className="primary"
+                  disabled={activeCapabilityTab !== "tools" || !selectedTool}
+                  type="button"
+                >
                   Execute
                 </button>
               </div>
 
               <div className="editor-grid">
                 <div>
-                  <h3>Request</h3>
-                  <pre>{JSON.stringify(selectedTool?.inputSchema ?? {}, null, 2)}</pre>
+                  <h3>Definition</h3>
+                  <pre>{formatJson(detailPayload)}</pre>
                 </div>
                 <div>
                   <h3>Runtime</h3>
                   <pre>
-                    {JSON.stringify(
+                    {formatJson(
                       {
                         capabilities: {
                           prompts: runtimeData.capabilities.prompts.length,
                           resources: runtimeData.capabilities.resources.length,
+                          schemas: schemas.length,
                           tools: runtimeData.capabilities.tools.length,
                         },
                         connectionId: runtimeData.capabilities.connectionId,
                         health: runtimeData.health,
+                        selected: {
+                          tab: activeCapabilityTab,
+                          title: detailTitle,
+                        },
                         source: runtimeData.source,
                       },
-                      null,
-                      2,
                     )}
                   </pre>
                 </div>

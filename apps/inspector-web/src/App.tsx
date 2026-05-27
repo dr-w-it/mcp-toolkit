@@ -1,8 +1,27 @@
-import { useState, type FormEvent } from "react";
-import type { ConnectionProfile, ConnectionTransport } from "@dr-w/core";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import type {
+  CapabilitySummary,
+  ConnectionProfile,
+  ConnectionTransport,
+  RuntimeHealthResponse,
+  TraceEntry,
+} from "@dr-w/core";
+import { localRuntimeClient } from "./localRuntimeClient";
 import { capabilitySummary, connectionProfiles, traceEntries } from "./mockData";
 
-const selectedTool = capabilitySummary.tools[0];
+const runtimeBaseUrl = import.meta.env.VITE_INSPECTOR_RUNTIME_URL ?? "http://127.0.0.1:8787";
+
+type RuntimeDataSource = "runtime" | "mock";
+
+interface RuntimeData {
+  capabilities: CapabilitySummary;
+  connections: ConnectionProfile[];
+  error: string | null;
+  health: RuntimeHealthResponse | null;
+  isLoading: boolean;
+  source: RuntimeDataSource;
+  traces: TraceEntry[];
+}
 
 interface KeyValueRow {
   id: string;
@@ -15,6 +34,10 @@ const transportOptions: { label: string; value: ConnectionTransport }[] = [
   { label: "HTTP", value: "http" },
   { label: "SSE", value: "sse" },
 ];
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unable to reach the local runtime";
+}
 
 function createBlankRow(prefix: string): KeyValueRow {
   return {
@@ -33,11 +56,19 @@ function rowsToRecord(rows: KeyValueRow[]) {
 }
 
 export function App() {
-  const [draftConnections, setDraftConnections] =
-    useState<ConnectionProfile[]>(connectionProfiles);
-  const [selectedConnectionId, setSelectedConnectionId] = useState(
-    connectionProfiles[0]?.id ?? "",
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(
+    connectionProfiles[0]?.id ?? null,
   );
+  const [runtimeData, setRuntimeData] = useState<RuntimeData>({
+    capabilities: capabilitySummary,
+    connections: connectionProfiles,
+    error: null,
+    health: null,
+    isLoading: true,
+    source: "mock",
+    traces: traceEntries,
+  });
+  const [draftConnections, setDraftConnections] = useState<ConnectionProfile[]>([]);
   const [name, setName] = useState("");
   const [transport, setTransport] = useState<ConnectionTransport>("stdio");
   const [command, setCommand] = useState("");
@@ -47,14 +78,98 @@ export function App() {
     createBlankRow("header"),
   ]);
 
-  const selectedConnection =
-    draftConnections.find((connection) => connection.id === selectedConnectionId) ??
-    draftConnections[0];
+  const connections = useMemo(() => {
+    const draftIds = new Set(draftConnections.map((connection) => connection.id));
+
+    return [
+      ...draftConnections,
+      ...runtimeData.connections.filter((connection) => !draftIds.has(connection.id)),
+    ];
+  }, [draftConnections, runtimeData.connections]);
+  const selectedConnection = useMemo(
+    () =>
+      connections.find((connection) => connection.id === selectedConnectionId) ??
+      connections[0],
+    [connections, selectedConnectionId],
+  );
+  const selectedTool = runtimeData.capabilities.tools[0];
   const isRemoteTransport = transport === "http" || transport === "sse";
   const canCreateDraft =
     name.trim().length > 0 &&
     ((transport === "stdio" && command.trim().length > 0) ||
       (isRemoteTransport && url.trim().length > 0));
+
+  const loadRuntimeData = useCallback(
+    async (signal?: AbortSignal) => {
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        error: null,
+        isLoading: true,
+      }));
+
+      try {
+        const [health, connectionsResponse, historyResponse] = await Promise.all([
+          localRuntimeClient.getHealth(signal),
+          localRuntimeClient.listConnections(signal),
+          localRuntimeClient.listHistory(signal),
+        ]);
+        const nextConnections = connectionsResponse.connections;
+        const nextSelectedConnectionId = nextConnections[0]?.id ?? null;
+        const capabilities = nextSelectedConnectionId
+          ? await localRuntimeClient.getCapabilities(nextSelectedConnectionId, signal)
+          : capabilitySummary;
+
+        setSelectedConnectionId((currentId) =>
+          currentId &&
+          (currentId.startsWith("draft-") ||
+            nextConnections.some((connection) => connection.id === currentId))
+            ? currentId
+            : nextSelectedConnectionId,
+        );
+        setRuntimeData({
+          capabilities,
+          connections: nextConnections,
+          error: null,
+          health,
+          isLoading: false,
+          source: "runtime",
+          traces: historyResponse.traces,
+        });
+      } catch (error) {
+        if (signal?.aborted) {
+          return;
+        }
+
+        setRuntimeData({
+          capabilities: capabilitySummary,
+          connections: connectionProfiles,
+          error: getErrorMessage(error),
+          health: null,
+          isLoading: false,
+          source: "mock",
+          traces: traceEntries,
+        });
+        setSelectedConnectionId((currentId) =>
+          currentId &&
+          (currentId.startsWith("draft-") ||
+            connectionProfiles.some((connection) => connection.id === currentId))
+            ? currentId
+            : connectionProfiles[0]?.id ?? null,
+        );
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void loadRuntimeData(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [loadRuntimeData]);
 
   function resetForm() {
     setName("");
@@ -103,7 +218,7 @@ export function App() {
       updatedAt: now,
     };
 
-    setDraftConnections((connections) => [profile, ...connections]);
+    setDraftConnections((currentConnections) => [profile, ...currentConnections]);
     setSelectedConnectionId(profile.id);
     resetForm();
   }
@@ -119,13 +234,29 @@ export function App() {
           </div>
         </div>
 
+        <section className="runtime-status" aria-live="polite">
+          <span className={`status-dot ${runtimeData.source === "runtime" ? "success" : "error"}`} />
+          <div>
+            <strong>
+              {runtimeData.health?.ok
+                ? `${runtimeData.health.service} online`
+                : "Using development data"}
+            </strong>
+            <small>
+              {runtimeData.source === "runtime"
+                ? `${runtimeData.health?.mode ?? "local"} at ${runtimeBaseUrl}`
+                : runtimeData.error ?? "Waiting for the local runtime"}
+            </small>
+          </div>
+        </section>
+
         <section className="panel">
           <div className="panel-header">
             <h2>Connections</h2>
             <button type="button">New</button>
           </div>
           <div className="connection-list">
-            {draftConnections.map((connection) => (
+            {connections.map((connection) => (
               <button
                 className={`connection-item ${
                   connection.id === selectedConnection?.id ? "active" : ""
@@ -146,7 +277,7 @@ export function App() {
             <h2>Timeline</h2>
           </div>
           <div className="timeline">
-            {traceEntries.map((entry) => (
+            {runtimeData.traces.map((entry) => (
               <button className="timeline-item" key={entry.id} type="button">
                 <span className={`status-dot ${entry.status}`} />
                 <span>{entry.operation}</span>
@@ -161,12 +292,17 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Connected target</p>
-            <h2>{selectedConnection?.name}</h2>
+            <h2>{selectedConnection?.name ?? "No runtime connection"}</h2>
           </div>
           <div className="topbar-actions">
             <button type="button">Replay</button>
-            <button className="primary" type="button">
-              Connect
+            <button
+              className="primary"
+              disabled={runtimeData.isLoading}
+              onClick={() => void loadRuntimeData()}
+              type="button"
+            >
+              {runtimeData.isLoading ? "Connecting" : "Connect"}
             </button>
           </div>
         </header>
@@ -385,7 +521,7 @@ export function App() {
               </div>
 
               <div className="capability-list">
-                {capabilitySummary.tools.map((tool) => (
+                {runtimeData.capabilities.tools.map((tool) => (
                   <article
                     className={`capability-card ${
                       tool.name === selectedTool?.name ? "selected" : ""
@@ -403,7 +539,7 @@ export function App() {
               <div className="panel-title">
                 <div>
                   <p className="eyebrow">Tool call</p>
-                  <h2>{selectedTool?.name}</h2>
+                  <h2>{selectedTool?.name ?? "Select a tool"}</h2>
                 </div>
                 <button className="primary" type="button">
                   Execute
@@ -413,16 +549,21 @@ export function App() {
               <div className="editor-grid">
                 <div>
                   <h3>Request</h3>
-                  <pre>{JSON.stringify({ path: "./README.md" }, null, 2)}</pre>
+                  <pre>{JSON.stringify(selectedTool?.inputSchema ?? {}, null, 2)}</pre>
                 </div>
                 <div>
-                  <h3>Response</h3>
+                  <h3>Runtime</h3>
                   <pre>
                     {JSON.stringify(
                       {
-                        status: "ok",
-                        content:
-                          "MCP Toolkit is a developer-focused repository...",
+                        capabilities: {
+                          prompts: runtimeData.capabilities.prompts.length,
+                          resources: runtimeData.capabilities.resources.length,
+                          tools: runtimeData.capabilities.tools.length,
+                        },
+                        connectionId: runtimeData.capabilities.connectionId,
+                        health: runtimeData.health,
+                        source: runtimeData.source,
                       },
                       null,
                       2,

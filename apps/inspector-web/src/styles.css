@@ -103,6 +103,7 @@ small {
 }
 
 .panel,
+.runtime-status,
 .surface {
   border: 1px solid #2a2f3a;
   border-radius: 8px;
@@ -111,6 +112,25 @@ small {
 
 .panel {
   padding: 14px;
+}
+
+.runtime-status {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.runtime-status strong,
+.runtime-status small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.runtime-status strong {
+  font-size: 13px;
 }
 
 .panel-header,

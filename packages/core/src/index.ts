@@ -64,6 +64,16 @@ export interface ToolCallResponse {
   completedAt: string;
 }
 
+export interface ExecuteToolCallRequest {
+  input: JsonValue;
+}
+
+export interface ExecuteToolCallResponse {
+  request: ToolCallRequest;
+  response: ToolCallResponse;
+  trace: TraceEntry;
+}
+
 export interface TraceEntry {
   id: string;
   connectionId: string;

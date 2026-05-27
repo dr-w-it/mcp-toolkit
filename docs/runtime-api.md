@@ -92,6 +92,81 @@ Capabilities describe what the connected MCP server exposes. The response keeps
 tools, resources, and prompts grouped under a single connection id so the web UI
 can render a consistent inspector view.
 
+## Tool Calls
+
+```http
+POST /connections/:connectionId/tools/:toolName/call
+Content-Type: application/json
+```
+
+Request type: `ExecuteToolCallRequest`
+
+```json
+{
+  "input": {
+    "path": "./README.md"
+  }
+}
+```
+
+Response type: `ExecuteToolCallResponse`
+
+```json
+{
+  "request": {
+    "id": "request-002",
+    "connectionId": "local-filesystem",
+    "toolName": "read_file",
+    "input": {
+      "path": "./README.md"
+    },
+    "createdAt": "2026-05-27T10:15:00.000Z"
+  },
+  "response": {
+    "requestId": "request-002",
+    "status": "success",
+    "output": {
+      "content": "Mock contents for ./README.md",
+      "path": "./README.md"
+    },
+    "rawRequest": {
+      "jsonrpc": "2.0",
+      "id": "request-002",
+      "method": "tools/call",
+      "params": {
+        "name": "read_file",
+        "arguments": {
+          "path": "./README.md"
+        }
+      }
+    },
+    "rawResponse": {
+      "jsonrpc": "2.0",
+      "id": "request-002",
+      "result": {
+        "content": "Mock contents for ./README.md",
+        "path": "./README.md"
+      }
+    },
+    "durationMs": 1,
+    "completedAt": "2026-05-27T10:15:00.001Z"
+  },
+  "trace": {
+    "id": "trace-003",
+    "connectionId": "local-filesystem",
+    "operation": "tools/call read_file",
+    "status": "success",
+    "startedAt": "2026-05-27T10:15:00.000Z",
+    "durationMs": 1,
+    "requestId": "request-002"
+  }
+}
+```
+
+The first runtime implementation may mock execution while preserving the shared
+request, response, raw protocol, and trace shapes that the UI will use for real
+tool calls later.
+
 ## History
 
 ```http

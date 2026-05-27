@@ -1,5 +1,7 @@
 import type {
+  ExecuteToolCallResponse,
   GetConnectionCapabilitiesResponse,
+  JsonValue,
   ListConnectionsResponse,
   ListHistoryResponse,
   RuntimeHealthResponse,
@@ -41,6 +43,21 @@ export class LocalRuntimeClient {
     return this.getJson<ListHistoryResponse>("/history", signal);
   }
 
+  callTool(
+    connectionId: string,
+    toolName: string,
+    input: JsonValue,
+    signal?: AbortSignal,
+  ): Promise<ExecuteToolCallResponse> {
+    return this.postJson<ExecuteToolCallResponse>(
+      `/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(
+        toolName,
+      )}/call`,
+      { input },
+      signal,
+    );
+  }
+
   private async getJson<TResponse>(path: string, signal?: AbortSignal): Promise<TResponse> {
     const response = await this.fetcher(`${this.baseUrl}${path}`, {
       headers: {
@@ -51,6 +68,28 @@ export class LocalRuntimeClient {
 
     if (!response.ok) {
       throw new Error(`Runtime request failed: GET ${path} returned ${response.status}`);
+    }
+
+    return (await response.json()) as TResponse;
+  }
+
+  private async postJson<TResponse>(
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<TResponse> {
+    const response = await this.fetcher(`${this.baseUrl}${path}`, {
+      body: JSON.stringify(body),
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Runtime request failed: POST ${path} returned ${response.status}`);
     }
 
     return (await response.json()) as TResponse;

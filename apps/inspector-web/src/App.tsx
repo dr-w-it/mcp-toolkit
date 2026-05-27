@@ -3,7 +3,9 @@ import type {
   CapabilitySummary,
   ConnectionProfile,
   ConnectionTransport,
+  ExecuteToolCallResponse,
   JsonObject,
+  JsonValue,
   PromptDefinition,
   ResourceDefinition,
   RuntimeHealthResponse,
@@ -17,6 +19,7 @@ const runtimeBaseUrl = import.meta.env.VITE_INSPECTOR_RUNTIME_URL ?? "http://127
 
 type RuntimeDataSource = "runtime" | "mock";
 type CapabilityTab = "tools" | "resources" | "prompts" | "schemas";
+type ResponseViewMode = "formatted" | "raw";
 
 interface RuntimeData {
   capabilities: CapabilitySummary;
@@ -100,6 +103,16 @@ function formatJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function getDefaultToolInput(tool: ToolDefinition | undefined): JsonObject {
+  if (tool?.name === "read_file" || tool?.name === "list_directory") {
+    return {
+      path: "./README.md",
+    };
+  }
+
+  return {};
+}
+
 function renderToolDetails(tool: ToolDefinition | undefined) {
   if (!tool) {
     return {};
@@ -168,6 +181,17 @@ export function App() {
   const [headerRows, setHeaderRows] = useState<KeyValueRow[]>([
     createBlankRow("header"),
   ]);
+  const [toolInputDraft, setToolInputDraft] = useState(
+    formatJson(getDefaultToolInput(capabilitySummary.tools[0])),
+  );
+  const [toolInputError, setToolInputError] = useState<string | null>(null);
+  const [toolExecution, setToolExecution] = useState<ExecuteToolCallResponse | null>(
+    null,
+  );
+  const [toolExecutionError, setToolExecutionError] = useState<string | null>(null);
+  const [isExecutingTool, setIsExecutingTool] = useState(false);
+  const [responseViewMode, setResponseViewMode] =
+    useState<ResponseViewMode>("formatted");
 
   const connections = useMemo(() => {
     const draftIds = new Set(draftConnections.map((connection) => connection.id));
@@ -230,6 +254,27 @@ export function App() {
     name.trim().length > 0 &&
     ((transport === "stdio" && command.trim().length > 0) ||
       (isRemoteTransport && url.trim().length > 0));
+  const responsePayload = toolExecutionError
+    ? {
+        error: toolExecutionError,
+        status: "error",
+      }
+    : toolExecution
+      ? responseViewMode === "raw"
+        ? {
+            request: toolExecution.response.rawRequest,
+            response: toolExecution.response.rawResponse,
+          }
+        : {
+            durationMs: toolExecution.response.durationMs,
+            error: toolExecution.response.error,
+            output: toolExecution.response.output,
+            requestId: toolExecution.response.requestId,
+            status: toolExecution.response.status,
+          }
+      : {
+          status: "idle",
+        };
 
   const loadRuntimeData = useCallback(
     async (signal?: AbortSignal) => {
@@ -302,6 +347,14 @@ export function App() {
       controller.abort();
     };
   }, [loadRuntimeData]);
+
+  useEffect(() => {
+    setToolInputDraft(formatJson(getDefaultToolInput(selectedTool)));
+    setToolInputError(null);
+    setToolExecution(null);
+    setToolExecutionError(null);
+    setResponseViewMode("formatted");
+  }, [selectedTool?.name]);
 
   function resetForm() {
     setName("");
@@ -395,6 +448,49 @@ export function App() {
         error: getErrorMessage(error),
         isLoading: false,
       }));
+    }
+  }
+
+  async function handleToolCallSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedConnection || !selectedTool) {
+      return;
+    }
+
+    let input: JsonValue;
+
+    try {
+      input = JSON.parse(toolInputDraft) as JsonValue;
+    } catch {
+      setToolInputError("Request input must be valid JSON.");
+      return;
+    }
+
+    setToolInputError(null);
+    setToolExecution(null);
+    setToolExecutionError(null);
+    setIsExecutingTool(true);
+
+    try {
+      const result = await localRuntimeClient.callTool(
+        selectedConnection.id,
+        selectedTool.name,
+        input,
+      );
+
+      setToolExecution(result);
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        traces: [
+          result.trace,
+          ...currentData.traces.filter((trace) => trace.id !== result.trace.id),
+        ],
+      }));
+    } catch (error) {
+      setToolExecutionError(getErrorMessage(error));
+    } finally {
+      setIsExecutingTool(false);
     }
   }
 
@@ -812,48 +908,108 @@ export function App() {
             </section>
 
             <section className="surface request-panel">
-              <div className="panel-title">
-                <div>
-                  <p className="eyebrow">{detailEyebrow}</p>
-                  <h2>{detailTitle}</h2>
+              <form className="tool-call-form" onSubmit={handleToolCallSubmit}>
+                <div className="panel-title">
+                  <div>
+                    <p className="eyebrow">{detailEyebrow}</p>
+                    <h2>{detailTitle}</h2>
+                  </div>
+                  <button
+                    className="primary"
+                    disabled={
+                      activeCapabilityTab !== "tools" || !selectedTool || isExecutingTool
+                    }
+                    type="submit"
+                  >
+                    {isExecutingTool ? "Executing" : "Execute"}
+                  </button>
                 </div>
-                <button
-                  className="primary"
-                  disabled={activeCapabilityTab !== "tools" || !selectedTool}
-                  type="button"
-                >
-                  Execute
-                </button>
-              </div>
+              </form>
 
               <div className="editor-grid">
                 <div>
                   <h3>Definition</h3>
                   <pre>{formatJson(detailPayload)}</pre>
                 </div>
+
                 <div>
-                  <h3>Runtime</h3>
-                  <pre>
-                    {formatJson(
-                      {
-                        capabilities: {
-                          prompts: runtimeData.capabilities.prompts.length,
-                          resources: runtimeData.capabilities.resources.length,
-                          schemas: schemas.length,
-                          tools: runtimeData.capabilities.tools.length,
-                        },
-                        connectionId: runtimeData.capabilities.connectionId,
-                        health: runtimeData.health,
-                        selected: {
-                          tab: activeCapabilityTab,
-                          title: detailTitle,
-                        },
-                        source: runtimeData.source,
-                      },
-                    )}
-                  </pre>
+                  {activeCapabilityTab === "tools" && selectedTool ? (
+                    <label className="json-editor">
+                      <span>Request input</span>
+                      <textarea
+                        onChange={(event) => setToolInputDraft(event.target.value)}
+                        spellCheck={false}
+                        value={toolInputDraft}
+                      />
+                      {toolInputError ? (
+                        <small className="inline-error">{toolInputError}</small>
+                      ) : null}
+                    </label>
+                  ) : (
+                    <>
+                      <h3>Runtime</h3>
+                      <pre>
+                        {formatJson(
+                          {
+                            capabilities: {
+                              prompts: runtimeData.capabilities.prompts.length,
+                              resources: runtimeData.capabilities.resources.length,
+                              schemas: schemas.length,
+                              tools: runtimeData.capabilities.tools.length,
+                            },
+                            connectionId: runtimeData.capabilities.connectionId,
+                            health: runtimeData.health,
+                            selected: {
+                              tab: activeCapabilityTab,
+                              title: detailTitle,
+                            },
+                            source: runtimeData.source,
+                          },
+                        )}
+                      </pre>
+                    </>
+                  )}
                 </div>
               </div>
+
+              {activeCapabilityTab === "tools" ? (
+                <div className="response-viewer">
+                  <div className="response-header">
+                    <div>
+                      <h3>Response</h3>
+                      <small
+                        className={
+                          toolExecution?.response.status === "success"
+                            ? "response-status success"
+                            : toolExecution || toolExecutionError
+                              ? "response-status error"
+                              : "response-status"
+                        }
+                      >
+                        {toolExecution?.response.status ??
+                          (toolExecutionError ? "error" : "idle")}
+                      </small>
+                    </div>
+                    <div className="view-toggle">
+                      <button
+                        className={responseViewMode === "formatted" ? "selected" : ""}
+                        onClick={() => setResponseViewMode("formatted")}
+                        type="button"
+                      >
+                        Formatted
+                      </button>
+                      <button
+                        className={responseViewMode === "raw" ? "selected" : ""}
+                        onClick={() => setResponseViewMode("raw")}
+                        type="button"
+                      >
+                        Raw
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="response-output">{formatJson(responsePayload)}</pre>
+                </div>
+              ) : null}
             </section>
           </div>
         </div>

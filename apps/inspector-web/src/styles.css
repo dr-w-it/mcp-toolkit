@@ -288,24 +288,40 @@ small {
   color: #c8d1dc;
 }
 
-input {
+input,
+textarea {
   min-width: 0;
-  min-height: 38px;
   border: 1px solid #2a2f3a;
   border-radius: 6px;
   outline: 0;
   background: #0f1115;
-  padding: 0 11px;
   color: #eef2f7;
   font: inherit;
 }
 
-input:focus {
+input {
+  min-height: 38px;
+  padding: 0 11px;
+}
+
+textarea {
+  min-height: 360px;
+  resize: vertical;
+  padding: 14px;
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+input:focus,
+textarea:focus {
   border-color: #3abff8;
   box-shadow: 0 0 0 3px rgba(58, 191, 248, 0.12);
 }
 
-input::placeholder {
+input::placeholder,
+textarea::placeholder {
   color: #5f6b7a;
 }
 
@@ -412,8 +428,12 @@ input::placeholder {
 
 .request-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 16px;
+}
+
+.tool-call-form {
+  display: block;
 }
 
 .editor-grid {
@@ -421,6 +441,64 @@ input::placeholder {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   min-height: 0;
+}
+
+.json-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.json-editor span {
+  color: #eef2f7;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.inline-error {
+  color: #ef4444;
+}
+
+.response-viewer {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.response-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.response-status {
+  display: inline-block;
+  margin-top: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.response-status.success {
+  color: #22c55e;
+}
+
+.response-status.error {
+  color: #ef4444;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.view-toggle button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.view-toggle button.selected {
+  border-color: #8b7cff;
+  color: #ffffff;
 }
 
 pre {
@@ -436,6 +514,10 @@ pre {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.response-output {
+  min-height: 240px;
 }
 
 @media (max-width: 900px) {
@@ -468,7 +550,8 @@ pre {
   }
 
   .topbar-actions,
-  .form-actions {
+  .form-actions,
+  .response-header {
     flex-wrap: wrap;
   }
 

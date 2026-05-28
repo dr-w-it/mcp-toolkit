@@ -98,7 +98,7 @@ Project documentation lives in `docs/`.
 
 ## Current Status
 
-The project is in the early scaffold phase.
+The project is in the early local MVP phase.
 
 The initial local product is being built as an npm workspace with:
 
@@ -108,8 +108,30 @@ The initial local product is being built as an npm workspace with:
 - `packages/mcp-client`
 - `packages/ui`
 
-The current runtime and UI still use mock data while the first MCP integration
-contracts are defined.
+Implemented so far:
+
+- a React/Vite MCP Inspector workbench UI
+- a local TypeScript/Node.js Inspector Runtime API
+- shared TypeScript contracts in `packages/core`
+- runtime endpoints for health, connections, capabilities, tool calls, history,
+  and replay shapes
+- a mock-backed capability explorer for tools, resources, prompts, and schemas
+- a structured JSON tool request editor and formatted/raw response viewer
+- runtime status handling with fallback development data when the local runtime
+  is unavailable
+- draft connection profile UI for `stdio`, HTTP, and SSE, including env vars and
+  headers at the UI level
+- Docker Compose local development for the web UI and runtime
+
+Important current limits:
+
+- real MCP transport execution is not implemented yet
+- `packages/mcp-client` currently defines interfaces but does not connect to MCP
+  servers
+- runtime tool calls are intentionally mocked
+- draft connection profiles are local UI state only
+- history and replay data are in memory only
+- trace import/export and persistence are not implemented yet
 
 ## Development
 

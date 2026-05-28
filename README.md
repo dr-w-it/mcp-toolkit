@@ -113,6 +113,11 @@ contracts are defined.
 
 ## Development
 
+Requirements:
+
+- Node.js 24 LTS
+- npm
+
 Install dependencies:
 
 ```sh
@@ -137,7 +142,64 @@ Development shortcuts are available through `dev.sh`:
 ./dev.sh server
 ./dev.sh runtime
 ./dev.sh local
+./dev.sh docker:up
 ./dev.sh check
+```
+
+Local development reads optional overrides from `.env`. Start from the example
+file when you need to change ports:
+
+```sh
+cp .env.example .env
+```
+
+### Docker Compose
+
+The local Docker setup starts the MCP Inspector web UI and local runtime without
+Postgres, Redis, Kubernetes, or hosted SaaS services.
+
+Build and start the local stack:
+
+```sh
+./dev.sh docker:up
+```
+
+Pass Docker Compose arguments after the command when needed:
+
+```sh
+./dev.sh docker:up -d
+```
+
+Open the web UI:
+
+```text
+http://127.0.0.1:5000
+```
+
+The runtime API is exposed locally at:
+
+```text
+http://127.0.0.1:8787
+```
+
+Compose runs the runtime inside Docker and binds both services to localhost on
+the host machine. For host-native `stdio` MCP servers that need to launch local
+processes outside Docker, keep using the host runtime workflow:
+
+```sh
+./dev.sh runtime
+```
+
+or run both host-native services:
+
+```sh
+./dev.sh local
+```
+
+If the default ports are already in use, override them through `.env` or inline:
+
+```sh
+INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 ./dev.sh docker:up
 ```
 
 ## Strategic Positioning

@@ -14,6 +14,7 @@ Shortcuts:
   server                 Start the inspector web dev server
   runtime                Start the local inspector runtime
   local                  Start web and runtime together
+  docker:up              Start the local Docker Compose stack
 
 Setup:
   deps                   Install npm workspace dependencies
@@ -43,6 +44,8 @@ Examples:
   ./dev.sh server
   ./dev.sh runtime
   ./dev.sh local
+  ./dev.sh docker:up
+  ./dev.sh docker:up -d
   ./dev.sh check
 EOF
 }
@@ -63,6 +66,15 @@ run_workspace() {
   local workspace="$1"
   shift
   run_npm run "$@" --workspace "$workspace"
+}
+
+load_env() {
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/.env"
+    set +a
+  fi
 }
 
 run_local() {
@@ -97,7 +109,14 @@ run_local() {
   wait "$runtime_pid" "$web_pid"
 }
 
+run_docker() {
+  require_cmd docker
+  (cd "$ROOT_DIR" && docker compose up --build "$@")
+}
+
 main() {
+  load_env
+
   case "${1:-}" in
     deps)
       run_npm ci
@@ -110,6 +129,10 @@ main() {
       ;;
     local)
       run_local
+      ;;
+    docker:up)
+      shift
+      run_docker "$@"
       ;;
     web:build)
       run_workspace @dr-w/inspector-web build

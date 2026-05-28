@@ -1,0 +1,37 @@
+x-app-build: &app-build
+  context: .
+  target: workspace
+
+services:
+  inspector-runtime:
+    build: *app-build
+    command: ["npm", "run", "dev", "--workspace", "@dr-w/inspector-runtime"]
+    environment:
+      INSPECTOR_RUNTIME_HOST: "0.0.0.0"
+      INSPECTOR_RUNTIME_PORT: "${INSPECTOR_RUNTIME_PORT:-8787}"
+      INSPECTOR_WEB_PORT: "${INSPECTOR_WEB_PORT:-5000}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:${INSPECTOR_RUNTIME_PORT:-8787}/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    ports:
+      - "127.0.0.1:${INSPECTOR_RUNTIME_PORT:-8787}:${INSPECTOR_RUNTIME_PORT:-8787}"
+
+  inspector-web:
+    build: *app-build
+    command: ["npm", "run", "dev", "--workspace", "@dr-w/inspector-web"]
+    depends_on:
+      inspector-runtime:
+        condition: service_healthy
+    environment:
+      INSPECTOR_WEB_HOST: "0.0.0.0"
+      INSPECTOR_WEB_PORT: "${INSPECTOR_WEB_PORT:-5000}"
+      VITE_INSPECTOR_RUNTIME_URL: "http://127.0.0.1:${INSPECTOR_RUNTIME_PORT:-8787}"
+    ports:
+      - "127.0.0.1:${INSPECTOR_WEB_PORT:-5000}:${INSPECTOR_WEB_PORT:-5000}"

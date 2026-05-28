@@ -18,7 +18,7 @@
     "typecheck:packages": "npm run typecheck --workspace @dr-w/core && npm run typecheck --workspace @dr-w/mcp-client && npm run typecheck --workspace @dr-w/ui"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24 <25"
   },
   "devDependencies": {
     "typescript": "latest"

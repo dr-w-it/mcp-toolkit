@@ -42,6 +42,28 @@ Docker Compose should be used for:
 Docker Compose should not imply cloud-first architecture or Kubernetes-first
 architecture.
 
+The repository includes a minimal Compose stack for local development:
+
+```sh
+./dev.sh docker:up
+```
+
+The stack starts:
+
+- `inspector-web` on `http://127.0.0.1:5000`
+- `inspector-runtime` on `http://127.0.0.1:8787`
+
+Both services bind to localhost on the host machine. The runtime listens on
+`0.0.0.0` inside its container so Docker can publish the port, but the published
+port remains local-only.
+
+The web UI uses `http://127.0.0.1:8787` as its runtime URL because browser
+requests originate from the developer machine, not from the Docker network.
+
+When default ports are unavailable, copy `.env.example` to `.env` and change
+`INSPECTOR_WEB_PORT` or `INSPECTOR_RUNTIME_PORT`. The web service uses the
+runtime port value to build its browser-visible runtime URL.
+
 ## MCP Transport Considerations
 
 Docker is a good fit for remote MCP servers and containerized local MCP servers.

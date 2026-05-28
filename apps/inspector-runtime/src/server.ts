@@ -18,7 +18,16 @@ import type {
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
-const allowedWebOriginPattern = /^http:\/\/(?:127\.0\.0\.1|localhost):517\d$/;
+const webPort = process.env["INSPECTOR_WEB_PORT"] ?? "5000";
+const allowedWebOrigins = new Set(
+  (
+    process.env["INSPECTOR_WEB_ORIGINS"] ??
+    `http://127.0.0.1:${webPort},http://localhost:${webPort}`
+  )
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
 
 const connections: ConnectionProfile[] = [
   {
@@ -114,11 +123,11 @@ toolCallResponses.set(sampleToolCallRequest.id, sampleToolCallResponse);
 function getAllowedOrigin(request: IncomingMessage) {
   const origin = request.headers.origin;
 
-  if (origin && allowedWebOriginPattern.test(origin)) {
+  if (origin && allowedWebOrigins.has(origin)) {
     return origin;
   }
 
-  return "http://127.0.0.1:5173";
+  return allowedWebOrigins.values().next().value ?? `http://127.0.0.1:${webPort}`;
 }
 
 function sendJson(request: IncomingMessage, response: ServerResponse, status: number, body: unknown) {

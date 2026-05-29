@@ -1,10 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type {
-  CapabilitySummary,
   ConnectionProfile,
   ExecuteToolCallRequest,
   ExecuteToolCallResponse,
-  JsonObject,
   JsonValue,
   ListConnectionsResponse,
   ListHistoryResponse,
@@ -15,6 +13,14 @@ import type {
   ToolCallResponse,
   TraceEntry,
 } from "@dr-w/core";
+import {
+  createMcpClient,
+  InvalidMcpCommandError,
+  McpConnectionClosedError,
+  McpConnectionStartupError,
+  UnsupportedMcpTransportError,
+  type McpConnection,
+} from "@dr-w/mcp-client";
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
@@ -34,32 +40,12 @@ const connections: ConnectionProfile[] = [
     id: "local-filesystem",
     name: "Local filesystem server",
     transport: "stdio",
-    command: "npx @modelcontextprotocol/server-filesystem ./",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "./"],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
 ];
-
-const capabilities: CapabilitySummary = {
-  connectionId: "local-filesystem",
-  tools: [
-    {
-      name: "read_file",
-      description: "Read a file from an allowed local directory.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-          },
-        },
-        required: ["path"],
-      },
-    },
-  ],
-  resources: [],
-  prompts: [],
-};
 
 const traces: TraceEntry[] = [
   {
@@ -70,55 +56,12 @@ const traces: TraceEntry[] = [
     startedAt: new Date().toISOString(),
     durationMs: 1,
   },
-  {
-    id: "trace-002",
-    connectionId: "local-filesystem",
-    operation: "tools/call read_file",
-    status: "success",
-    startedAt: new Date().toISOString(),
-    durationMs: 14,
-    requestId: "request-001",
-  },
 ];
 
 const toolCallRequests = new Map<string, ToolCallRequest>();
 const toolCallResponses = new Map<string, ToolCallResponse>();
-
-const sampleToolCallRequest: ToolCallRequest = {
-  id: "request-001",
-  connectionId: "local-filesystem",
-  toolName: "read_file",
-  input: { path: "./README.md" },
-  createdAt: new Date().toISOString(),
-};
-
-const sampleToolCallResponse: ToolCallResponse = {
-  requestId: sampleToolCallRequest.id,
-  status: "success",
-  output: {
-    content: "MCP Toolkit is a developer-focused repository...",
-  },
-  rawRequest: {
-    id: sampleToolCallRequest.id,
-    connectionId: sampleToolCallRequest.connectionId,
-    toolName: sampleToolCallRequest.toolName,
-    input: sampleToolCallRequest.input,
-    createdAt: sampleToolCallRequest.createdAt,
-  },
-  rawResponse: {
-    content: [
-      {
-        type: "text",
-        text: "MCP Toolkit is a developer-focused repository...",
-      },
-    ],
-  },
-  durationMs: 14,
-  completedAt: new Date().toISOString(),
-};
-
-toolCallRequests.set(sampleToolCallRequest.id, sampleToolCallRequest);
-toolCallResponses.set(sampleToolCallRequest.id, sampleToolCallResponse);
+const mcpClient = createMcpClient();
+const mcpConnections = new Map<string, McpConnection>();
 
 function getAllowedOrigin(request: IncomingMessage) {
   const origin = request.headers.origin;
@@ -166,35 +109,29 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
   });
 }
 
-function isJsonObject(value: JsonValue): value is JsonObject {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
+async function getMcpConnection(profile: ConnectionProfile): Promise<McpConnection> {
+  const existingConnection = mcpConnections.get(profile.id);
 
-function getMockToolOutput(toolName: string, input: JsonValue): JsonValue {
-  if (toolName === "read_file") {
-    const path = isJsonObject(input) ? input["path"] : undefined;
-
-    if (typeof path !== "string") {
-      throw new Error("read_file requires a string path");
-    }
-
-    return {
-      content: `Mock contents for ${path}`,
-      path,
-    };
+  if (existingConnection) {
+    return existingConnection;
   }
 
-  return {
-    echo: input,
-    toolName,
-  };
+  const connection = await mcpClient.connect(profile);
+  mcpConnections.set(profile.id, connection);
+  return connection;
 }
 
-function createToolCall(
+function closeMcpConnection(connectionId: string) {
+  const connection = mcpConnections.get(connectionId);
+  mcpConnections.delete(connectionId);
+  void connection?.close().catch(() => undefined);
+}
+
+async function createToolCall(
   connectionId: string,
   toolName: string,
   input: JsonValue,
-): ExecuteToolCallResponse {
+): Promise<ExecuteToolCallResponse> {
   const startedAt = new Date();
   const requestNumber = toolCallRequests.size + 1;
   const request: ToolCallRequest = {
@@ -204,59 +141,23 @@ function createToolCall(
     input,
     createdAt: startedAt.toISOString(),
   };
+  const connection = connections.find((item) => item.id === connectionId);
 
-  let output: JsonValue | undefined;
-  let error: string | undefined;
-
-  try {
-    output = getMockToolOutput(toolName, input);
-  } catch (toolError) {
-    error =
-      toolError instanceof Error ? toolError.message : "Mock tool execution failed";
+  if (!connection) {
+    throw new Error("Connection not found");
   }
 
-  const completedAt = new Date();
-  const durationMs = Math.max(1, completedAt.getTime() - startedAt.getTime());
-  const response: ToolCallResponse = {
-    requestId: request.id,
-    status: error ? "error" : "success",
-    output,
-    error,
-    rawRequest: {
-      jsonrpc: "2.0",
-      id: request.id,
-      method: "tools/call",
-      params: {
-        arguments: input,
-        name: toolName,
-      },
-    },
-    rawResponse: error
-      ? {
-          error: {
-            code: -32602,
-            message: error,
-          },
-          id: request.id,
-          jsonrpc: "2.0",
-        }
-      : {
-          id: request.id,
-          jsonrpc: "2.0",
-          result: output ?? null,
-        },
-    durationMs,
-    completedAt: completedAt.toISOString(),
-  };
+  const mcpConnection = await getMcpConnection(connection);
+  const response = await mcpConnection.callTool(toolName, input, request.id);
   const trace: TraceEntry = {
     id: `trace-${(traces.length + 1).toString().padStart(3, "0")}`,
     connectionId,
     operation: `tools/call ${toolName}`,
     status: response.status,
     startedAt: request.createdAt,
-    durationMs,
+    durationMs: response.durationMs,
     requestId: request.id,
-    error,
+    error: response.error,
   };
 
   toolCallRequests.set(request.id, request);
@@ -267,6 +168,33 @@ function createToolCall(
     request,
     response,
     trace,
+  };
+}
+
+function getRuntimeError(error: unknown) {
+  if (error instanceof UnsupportedMcpTransportError) {
+    return { status: 400, message: error.message };
+  }
+
+  if (error instanceof InvalidMcpCommandError) {
+    return { status: 400, message: error.message };
+  }
+
+  if (error instanceof McpConnectionStartupError) {
+    return { status: 502, message: `MCP server startup failed: ${error.message}` };
+  }
+
+  if (error instanceof McpConnectionClosedError) {
+    return { status: 502, message: error.message };
+  }
+
+  if (error instanceof Error && /timeout/i.test(error.message)) {
+    return { status: 504, message: error.message };
+  }
+
+  return {
+    status: 500,
+    message: error instanceof Error ? error.message : "Runtime request failed",
   };
 }
 
@@ -301,8 +229,30 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && url.pathname === "/connections/local-filesystem/capabilities") {
-    sendJson(request, response, 200, capabilities);
+  const capabilitiesMatch = url.pathname.match(/^\/connections\/([^/]+)\/capabilities$/);
+
+  if (request.method === "GET" && capabilitiesMatch) {
+    const connectionId = decodeURIComponent(capabilitiesMatch[1] ?? "");
+    const connection = connections.find((item) => item.id === connectionId);
+
+    if (!connection) {
+      sendJson(request, response, 404, { error: "Connection not found" });
+      return;
+    }
+
+    try {
+      const mcpConnection = await getMcpConnection(connection);
+      const discoveredCapabilities = await mcpConnection.capabilities();
+
+      sendJson(request, response, 200, discoveredCapabilities);
+    } catch (error) {
+      if (error instanceof McpConnectionClosedError) {
+        closeMcpConnection(connection.id);
+      }
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+    }
     return;
   }
 
@@ -314,12 +264,29 @@ const server = createServer(async (request, response) => {
     const connectionId = decodeURIComponent(toolCallMatch[1] ?? "");
     const toolName = decodeURIComponent(toolCallMatch[2] ?? "");
     const connection = connections.find((item) => item.id === connectionId);
-    const tool = capabilities.tools.find((item) => item.name === toolName);
 
     if (!connection) {
       sendJson(request, response, 404, { error: "Connection not found" });
       return;
     }
+
+    let mcpConnection: McpConnection;
+    let discoveredTools: Awaited<ReturnType<McpConnection["capabilities"]>>["tools"];
+
+    try {
+      mcpConnection = await getMcpConnection(connection);
+      discoveredTools = (await mcpConnection.capabilities()).tools;
+    } catch (error) {
+      if (error instanceof McpConnectionClosedError) {
+        closeMcpConnection(connection.id);
+      }
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+      return;
+    }
+
+    const tool = discoveredTools.find((item) => item.name === toolName);
 
     if (!tool) {
       sendJson(request, response, 404, { error: "Tool not found" });
@@ -335,14 +302,23 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const toolCallRequest = body as Partial<ExecuteToolCallRequest>;
-    const toolCallResponse = createToolCall(
-      connection.id,
-      tool.name,
-      toolCallRequest.input ?? {},
-    );
+    try {
+      const toolCallRequest = body as Partial<ExecuteToolCallRequest>;
+      const toolCallResponse = await createToolCall(
+        connection.id,
+        tool.name,
+        toolCallRequest.input ?? {},
+      );
 
-    sendJson(request, response, 200, toolCallResponse);
+      sendJson(request, response, 200, toolCallResponse);
+    } catch (error) {
+      if (error instanceof McpConnectionClosedError) {
+        closeMcpConnection(connection.id);
+      }
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+    }
     return;
   }
 
@@ -378,28 +354,36 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const trace: TraceEntry = {
-      id: `trace-${(traces.length + 1).toString().padStart(3, "0")}`,
-      connectionId: originalRequest.connectionId,
-      operation: `replay ${originalRequest.toolName}`,
-      status: "success",
-      startedAt: new Date().toISOString(),
-      durationMs: originalResponse.durationMs,
-      requestId: originalRequest.id,
-    };
+    try {
+      const replayedCall = await createToolCall(
+        originalRequest.connectionId,
+        originalRequest.toolName,
+        originalRequest.input,
+      );
+      const trace: TraceEntry = {
+        ...replayedCall.trace,
+        operation: `replay ${originalRequest.toolName}`,
+        requestId: replayedCall.request.id,
+      };
 
-    const replayResponse: ReplayToolCallResponse = {
-      replayedFromRequestId: originalRequest.id,
-      request: originalRequest,
-      response: {
-        ...originalResponse,
-        completedAt: new Date().toISOString(),
-      },
-      trace,
-    };
+      traces[0] = trace;
 
-    traces.unshift(trace);
-    sendJson(request, response, 200, replayResponse);
+      const replayResponse: ReplayToolCallResponse = {
+        replayedFromRequestId: originalRequest.id,
+        request: replayedCall.request,
+        response: replayedCall.response,
+        trace,
+      };
+
+      sendJson(request, response, 200, replayResponse);
+    } catch (error) {
+      if (error instanceof McpConnectionClosedError) {
+        closeMcpConnection(originalRequest.connectionId);
+      }
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+    }
     return;
   }
 
@@ -408,4 +392,27 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   console.log(`Inspector Runtime listening on http://${host}:${port}`);
+});
+
+async function closeRuntimeConnections() {
+  await Promise.all(
+    [...mcpConnections.values()].map((connection) =>
+      connection.close().catch(() => undefined),
+    ),
+  );
+  mcpConnections.clear();
+}
+
+async function shutdownRuntime() {
+  await closeRuntimeConnections();
+  server.close();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => {
+  void shutdownRuntime();
+});
+
+process.on("SIGTERM", () => {
+  void shutdownRuntime();
 });

@@ -67,7 +67,7 @@ export class LocalRuntimeClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Runtime request failed: GET ${path} returned ${response.status}`);
+      throw new Error(await getRuntimeErrorMessage(response, `GET ${path}`));
     }
 
     return (await response.json()) as TResponse;
@@ -89,11 +89,25 @@ export class LocalRuntimeClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Runtime request failed: POST ${path} returned ${response.status}`);
+      throw new Error(await getRuntimeErrorMessage(response, `POST ${path}`));
     }
 
     return (await response.json()) as TResponse;
   }
+}
+
+async function getRuntimeErrorMessage(response: Response, requestLabel: string) {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+
+    if (typeof body.error === "string" && body.error) {
+      return body.error;
+    }
+  } catch {
+    // Fall back to the transport-level status below.
+  }
+
+  return `Runtime request failed: ${requestLabel} returned ${response.status}`;
 }
 
 export const localRuntimeClient = new LocalRuntimeClient({

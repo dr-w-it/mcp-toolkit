@@ -14,7 +14,8 @@
     "typecheck": "tsc -p tsconfig.json --pretty false"
   },
   "dependencies": {
-    "@dr-w/core": "0.0.0"
+    "@dr-w/core": "0.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
     "typescript": "latest"

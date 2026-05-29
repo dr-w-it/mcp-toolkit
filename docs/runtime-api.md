@@ -46,7 +46,8 @@ Response type: `ListConnectionsResponse`
       "id": "local-filesystem",
       "name": "Local filesystem server",
       "transport": "stdio",
-      "command": "npx @modelcontextprotocol/server-filesystem ./",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
       "createdAt": "2026-05-26T08:30:00.000Z",
       "updatedAt": "2026-05-26T08:30:00.000Z"
     }
@@ -126,12 +127,16 @@ Response type: `ExecuteToolCallResponse`
     "requestId": "request-002",
     "status": "success",
     "output": {
-      "content": "Mock contents for ./README.md",
-      "path": "./README.md"
+      "content": [
+        {
+          "type": "text",
+          "text": "MCP Toolkit is a developer-focused repository..."
+        }
+      ]
     },
     "rawRequest": {
       "jsonrpc": "2.0",
-      "id": "request-002",
+      "id": 3,
       "method": "tools/call",
       "params": {
         "name": "read_file",
@@ -142,10 +147,14 @@ Response type: `ExecuteToolCallResponse`
     },
     "rawResponse": {
       "jsonrpc": "2.0",
-      "id": "request-002",
+      "id": 3,
       "result": {
-        "content": "Mock contents for ./README.md",
-        "path": "./README.md"
+        "content": [
+          {
+            "type": "text",
+            "text": "MCP Toolkit is a developer-focused repository..."
+          }
+        ]
       }
     },
     "durationMs": 1,
@@ -163,9 +172,9 @@ Response type: `ExecuteToolCallResponse`
 }
 ```
 
-The first runtime implementation may mock execution while preserving the shared
-request, response, raw protocol, and trace shapes that the UI will use for real
-tool calls later.
+For `stdio` connections, the runtime launches the configured local MCP server
+process and preserves the raw JSON-RPC request/response data for the response
+viewer.
 
 ## History
 

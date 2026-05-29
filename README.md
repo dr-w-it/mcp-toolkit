@@ -115,7 +115,7 @@ Implemented so far:
 - shared TypeScript contracts in `packages/core`
 - runtime endpoints for health, connections, capabilities, tool calls, history,
   and replay shapes
-- a mock-backed capability explorer for tools, resources, prompts, and schemas
+- real `stdio` MCP discovery and tool execution through the local runtime
 - a structured JSON tool request editor and formatted/raw response viewer
 - runtime status handling with fallback development data when the local runtime
   is unavailable
@@ -125,10 +125,7 @@ Implemented so far:
 
 Important current limits:
 
-- real MCP transport execution is not implemented yet
-- `packages/mcp-client` currently defines interfaces but does not connect to MCP
-  servers
-- runtime tool calls are intentionally mocked
+- HTTP and SSE MCP transports are not implemented yet
 - draft connection profiles are local UI state only
 - history and replay data are in memory only
 - trace import/export and persistence are not implemented yet
@@ -264,6 +261,7 @@ MCP Toolkit is:
 - [Stack](STACK.md)
 - [Architecture](docs/architecture.md)
 - [Local Runtime API](docs/runtime-api.md)
+- [Stdio MCP Transport](docs/stdio-mcp-transport.md)
 - [Branding](docs/branding.md)
 - [Product Decisions](docs/product-decisions.md)
 - [Local Deployment](docs/local-deployment.md)

@@ -127,6 +127,15 @@ repository rather than a sensitive working tree when possible.
 
 ## Create Through The Runtime API
 
+For HTTP and SSE testing, start the SDK remote transport test server:
+
+```sh
+./dev.sh remote:mcp
+```
+
+It listens on `http://127.0.0.1:3000/mcp` for Streamable HTTP and
+`http://127.0.0.1:3000/sse` for legacy HTTP+SSE.
+
 With `./dev.sh local` running, create a profile directly:
 
 ```sh
@@ -150,7 +159,7 @@ curl -sS http://127.0.0.1:8787/connections
 - `npx -y` may download packages the first time a profile is used.
 - `uvx` examples require `uv` to be installed.
 - Do not put production credentials in test profiles.
-- HTTP and SSE profile shapes can be created in Inspector, but MCP Inspector
-  does not execute HTTP or SSE transports yet.
-- Keep test servers local-first until remote transport support and secret
-  redaction policies are implemented.
+- HTTP and SSE profiles execute through the local Inspector Runtime. Prefer
+  local or disposable remote MCP servers when validating auth headers.
+- Keep test servers local-first unless the validation specifically needs a
+  remote endpoint.

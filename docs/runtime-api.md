@@ -248,8 +248,10 @@ Response type: `ExecuteToolCallResponse`
 ```
 
 For `stdio` connections, the runtime launches the configured local MCP server
-process and preserves the raw JSON-RPC request/response data for the response
-viewer.
+process. For HTTP and SSE connections, the runtime connects to the configured
+remote URL and passes optional auth headers only to the transport layer. All
+transports preserve raw JSON-RPC request/response data for the response viewer
+without including HTTP headers or environment values.
 
 ## History
 

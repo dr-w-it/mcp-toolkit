@@ -245,11 +245,12 @@ textarea::placeholder {
 
 .connections-section:has(.connection-composer) {
   flex-basis: 58%;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .connections-section:has(.connection-composer) .connection-list {
-  min-height: 0;
+  display: none;
 }
 
 .section-header,
@@ -288,11 +289,14 @@ textarea::placeholder {
 .connection-composer {
   display: grid;
   gap: 12px;
-  margin-bottom: 14px;
+  min-height: 0;
+  overflow: auto;
+  margin-bottom: 0;
   border: 1px solid #2a2f3a;
   border-radius: 8px;
   background: #171b21;
   padding: 12px;
+  scrollbar-gutter: stable;
 }
 
 .composer-header {

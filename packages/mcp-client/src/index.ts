@@ -9,7 +9,9 @@ import type {
   ToolDefinition,
 } from "@dr-w/core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage, RequestId } from "@modelcontextprotocol/sdk/types.js";
 
@@ -35,6 +37,13 @@ export class InvalidMcpCommandError extends Error {
   constructor(message = "A stdio connection requires a command") {
     super(message);
     this.name = "InvalidMcpCommandError";
+  }
+}
+
+export class InvalidMcpUrlError extends Error {
+  constructor(message = "An HTTP or SSE connection requires a valid URL") {
+    super(message);
+    this.name = "InvalidMcpUrlError";
   }
 }
 
@@ -74,7 +83,7 @@ class CapturingTransport implements Transport {
       this.messages.push({ direction: "received", message });
       this.onmessage?.(message);
     };
-    this.transport.setProtocolVersion = (version) => this.setProtocolVersion?.(version);
+    this.setProtocolVersion = (version) => this.transport.setProtocolVersion?.(version);
     await this.transport.start();
   }
 
@@ -135,20 +144,7 @@ class CapturingTransport implements Transport {
 
 export class DefaultMcpClient implements McpClient {
   async connect(profile: ConnectionProfile): Promise<McpConnection> {
-    if (profile.transport !== "stdio") {
-      throw new UnsupportedMcpTransportError(profile.transport);
-    }
-
-    const command = resolveStdioCommand(profile);
-    const stdioTransport = new StdioClientTransport({
-      args: command.args,
-      command: command.command,
-      env: profile.env,
-      stderr: "pipe",
-    });
-    stdioTransport.stderr?.on("data", () => undefined);
-
-    const transport = new CapturingTransport(stdioTransport);
+    const transport = new CapturingTransport(createTransport(profile));
     const client = new Client({
       name: "mcp-inspector-runtime",
       version: "0.0.0",
@@ -172,11 +168,11 @@ export class DefaultMcpClient implements McpClient {
       throw new McpConnectionStartupError(startupError || message);
     }
 
-    return new StdioMcpConnection(profile, client, transport, () => closed);
+    return new DefaultMcpConnection(profile, client, transport, () => closed);
   }
 }
 
-class StdioMcpConnection implements McpConnection {
+class DefaultMcpConnection implements McpConnection {
   constructor(
     readonly profile: ConnectionProfile,
     private readonly client: Client,
@@ -295,6 +291,34 @@ export function createMcpClient(): McpClient {
   return new DefaultMcpClient();
 }
 
+function createTransport(profile: ConnectionProfile): Transport {
+  if (profile.transport === "stdio") {
+    const command = resolveStdioCommand(profile);
+    const stdioTransport = new StdioClientTransport({
+      args: command.args,
+      command: command.command,
+      env: profile.env,
+      stderr: "pipe",
+    });
+    stdioTransport.stderr?.on("data", () => undefined);
+    return stdioTransport;
+  }
+
+  if (profile.transport === "http") {
+    return new StreamableHTTPClientTransport(resolveRemoteUrl(profile), {
+      requestInit: createRemoteRequestInit(profile),
+    });
+  }
+
+  if (profile.transport === "sse") {
+    return new SSEClientTransport(resolveRemoteUrl(profile), {
+      requestInit: createRemoteRequestInit(profile),
+    });
+  }
+
+  throw new UnsupportedMcpTransportError(profile.transport);
+}
+
 function resolveStdioCommand(profile: ConnectionProfile): { command: string; args: string[] } {
   const commandText = profile.command?.trim();
 
@@ -316,6 +340,38 @@ function resolveStdioCommand(profile: ConnectionProfile): { command: string; arg
   }
 
   return { args, command };
+}
+
+function resolveRemoteUrl(profile: ConnectionProfile): URL {
+  const url = profile.url?.trim();
+
+  if (!url) {
+    throw new InvalidMcpUrlError();
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new InvalidMcpUrlError("Remote MCP URLs must use http or https");
+    }
+
+    return parsedUrl;
+  } catch (error) {
+    if (error instanceof InvalidMcpUrlError) {
+      throw error;
+    }
+
+    throw new InvalidMcpUrlError();
+  }
+}
+
+function createRemoteRequestInit(profile: ConnectionProfile): RequestInit {
+  return profile.headers
+    ? {
+        headers: profile.headers,
+      }
+    : {};
 }
 
 function splitCommand(command: string): string[] {

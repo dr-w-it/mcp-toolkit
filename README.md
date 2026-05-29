@@ -95,6 +95,7 @@ Project documentation lives in `docs/`.
 
 - `docs/architecture.md` describes the intended high-level architecture.
 - `docs/product-decisions.md` records early product decisions.
+- `docs/remote-mcp-transports.md` documents HTTP and SSE runtime transports.
 - `docs/test-mcp-servers.md` lists MCP servers useful for local Inspector
   testing.
 
@@ -118,6 +119,7 @@ Implemented so far:
 - runtime endpoints for health, connections, capabilities, tool calls, history,
   and replay shapes
 - real `stdio` MCP discovery and tool execution through the local runtime
+- real HTTP and SSE MCP discovery and tool execution through the local runtime
 - a structured JSON tool request editor and formatted/raw response viewer
 - runtime status handling with fallback development data when the local runtime
   is unavailable
@@ -129,7 +131,6 @@ Implemented so far:
 
 Important current limits:
 
-- HTTP and SSE MCP transports are not implemented yet
 - connection profiles are not persisted across runtime restarts yet
 - history and replay data are in memory only
 - trace import/export and persistence are not implemented yet
@@ -165,6 +166,7 @@ Development shortcuts are available through `dev.sh`:
 ./dev.sh server
 ./dev.sh runtime
 ./dev.sh local
+./dev.sh remote:mcp
 ./dev.sh docker:up
 ./dev.sh check
 ```

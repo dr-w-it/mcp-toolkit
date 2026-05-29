@@ -14,6 +14,7 @@ Shortcuts:
   server                 Start the inspector web dev server
   runtime                Start the local inspector runtime
   local                  Start web and runtime together
+  remote:mcp             Start the remote HTTP/SSE MCP test server
   docker:up              Start the local Docker Compose stack
 
 Setup:
@@ -30,6 +31,9 @@ Runtime:
   runtime:start          Start the built local inspector runtime
   runtime:typecheck      Typecheck the local inspector runtime
 
+MCP test servers:
+  remote:mcp             Start the SDK HTTP/SSE MCP test server on port 3000
+
 Packages:
   packages:build         Build shared packages
   packages:typecheck     Typecheck shared packages
@@ -44,6 +48,7 @@ Examples:
   ./dev.sh server
   ./dev.sh runtime
   ./dev.sh local
+  ./dev.sh remote:mcp
   ./dev.sh docker:up
   ./dev.sh docker:up -d
   ./dev.sh check
@@ -114,6 +119,19 @@ run_docker() {
   (cd "$ROOT_DIR" && docker compose up --build "$@")
 }
 
+run_remote_mcp_test_server() {
+  require_cmd node
+
+  local server_path="$ROOT_DIR/node_modules/@modelcontextprotocol/sdk/dist/esm/examples/server/sseAndStreamableHttpCompatibleServer.js"
+
+  if [[ ! -f "$server_path" ]]; then
+    echo "Missing MCP SDK test server. Run ./dev.sh deps first." >&2
+    exit 1
+  fi
+
+  node "$server_path"
+}
+
 main() {
   load_env
 
@@ -129,6 +147,9 @@ main() {
       ;;
     local)
       run_local
+      ;;
+    remote:mcp)
+      run_remote_mcp_test_server
       ;;
     docker:up)
       shift

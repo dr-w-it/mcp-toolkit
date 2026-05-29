@@ -20,6 +20,7 @@ import type {
 import {
   createMcpClient,
   InvalidMcpCommandError,
+  InvalidMcpUrlError,
   McpConnectionClosedError,
   McpConnectionStartupError,
   UnsupportedMcpTransportError,
@@ -64,6 +65,8 @@ const traces: TraceEntry[] = [
 
 const toolCallRequests = new Map<string, ToolCallRequest>();
 const toolCallResponses = new Map<string, ToolCallResponse>();
+let nextToolCallRequestNumber = 1;
+let nextTraceNumber = traces.length + 1;
 const mcpClient = createMcpClient();
 const mcpConnections = new Map<string, McpConnection>();
 
@@ -347,7 +350,8 @@ async function createToolCall(
   input: JsonValue,
 ): Promise<ExecuteToolCallResponse> {
   const startedAt = new Date();
-  const requestNumber = toolCallRequests.size + 1;
+  const requestNumber = nextToolCallRequestNumber;
+  nextToolCallRequestNumber += 1;
   const request: ToolCallRequest = {
     id: `request-${requestNumber.toString().padStart(3, "0")}`,
     connectionId,
@@ -363,8 +367,10 @@ async function createToolCall(
 
   const mcpConnection = await getMcpConnection(connection);
   const response = await mcpConnection.callTool(toolName, input, request.id);
+  const traceNumber = nextTraceNumber;
+  nextTraceNumber += 1;
   const trace: TraceEntry = {
-    id: `trace-${(traces.length + 1).toString().padStart(3, "0")}`,
+    id: `trace-${traceNumber.toString().padStart(3, "0")}`,
     connectionId,
     operation: `tools/call ${toolName}`,
     status: response.status,
@@ -391,6 +397,10 @@ function getRuntimeError(error: unknown) {
   }
 
   if (error instanceof InvalidMcpCommandError) {
+    return { status: 400, message: error.message };
+  }
+
+  if (error instanceof InvalidMcpUrlError) {
     return { status: 400, message: error.message };
   }
 

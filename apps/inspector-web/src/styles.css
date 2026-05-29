@@ -271,6 +271,29 @@ textarea::placeholder {
   padding: 12px;
 }
 
+.composer-header {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.composer-header h3,
+.composer-header small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-header h3 {
+  color: #eef2f7;
+}
+
+.composer-header small {
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
 .field {
   display: grid;
   gap: 7px;

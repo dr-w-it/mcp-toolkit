@@ -85,6 +85,20 @@ function rowsToRecord(rows: KeyValueRow[]) {
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+function recordToRows(record: Record<string, string> | undefined, prefix: string) {
+  const entries = Object.entries(record ?? {});
+
+  if (entries.length === 0) {
+    return [createBlankRow(prefix)];
+  }
+
+  return entries.map(([key, value]) => ({
+    id: `${prefix}-${crypto.randomUUID()}`,
+    key,
+    value,
+  }));
+}
+
 function createEmptyCapabilitySummary(connectionId: string): CapabilitySummary {
   return {
     connectionId,
@@ -109,6 +123,18 @@ function getSchemaSummaries(capabilities: CapabilitySummary): SchemaSummary[] {
 
 function formatJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
+}
+
+function formatConnectionCommand(connection: ConnectionProfile | undefined) {
+  if (!connection) {
+    return "No runtime target selected";
+  }
+
+  if (connection.command && connection.args?.length) {
+    return [connection.command, ...connection.args].join(" ");
+  }
+
+  return connection.command ?? connection.url ?? "No runtime target selected";
 }
 
 function getDefaultToolInput(tool: ToolDefinition | undefined): JsonObject {
@@ -181,8 +207,9 @@ export function App() {
   });
   const [draftConnections, setDraftConnections] = useState<ConnectionProfile[]>([]);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [isCreatingConnection, setIsCreatingConnection] = useState(false);
+  const [isSavingConnection, setIsSavingConnection] = useState(false);
   const [name, setName] = useState("");
   const [transport, setTransport] = useState<ConnectionTransport>("stdio");
   const [command, setCommand] = useState("");
@@ -254,12 +281,11 @@ export function App() {
     schemas.find((schema) => schema.id === selectedCapabilityKeys.schemas) ?? schemas[0];
   const runtimeTone = getRuntimeTone(runtimeData);
   const isRemoteTransport = transport === "http" || transport === "sse";
-  const canCreateConnection =
+  const canSaveConnection =
     name.trim().length > 0 &&
     ((transport === "stdio" && command.trim().length > 0) ||
       (isRemoteTransport && url.trim().length > 0));
-  const targetCommand =
-    selectedConnection?.command ?? selectedConnection?.url ?? "No runtime target selected";
+  const targetCommand = formatConnectionCommand(selectedConnection);
 
   const detailTitle =
     activeCapabilityTab === "tools"
@@ -458,6 +484,35 @@ export function App() {
     setHeaderRows([createBlankRow("header")]);
   }
 
+  function closeComposer() {
+    setIsComposerOpen(false);
+    setEditingConnectionId(null);
+    resetForm();
+  }
+
+  function openNewConnectionComposer() {
+    if (isComposerOpen && !editingConnectionId) {
+      closeComposer();
+      return;
+    }
+
+    setEditingConnectionId(null);
+    resetForm();
+    setIsComposerOpen(true);
+  }
+
+  function openEditConnectionComposer(connection: ConnectionProfile) {
+    setEditingConnectionId(connection.id);
+    setName(connection.name);
+    setTransport(connection.transport);
+    setCommand(connection.transport === "stdio" ? formatConnectionCommand(connection) : "");
+    setUrl(connection.transport === "stdio" ? "" : connection.url ?? "");
+    setComposerError(null);
+    setEnvRows(recordToRows(connection.env, "env"));
+    setHeaderRows(recordToRows(connection.headers, "header"));
+    setIsComposerOpen(true);
+  }
+
   function updateRow(
     rows: KeyValueRow[],
     rowId: string,
@@ -519,8 +574,71 @@ export function App() {
 
     setComposerError(null);
 
+    if (editingConnectionId) {
+      const existingConnection = connections.find(
+        (connection) => connection.id === editingConnectionId,
+      );
+
+      if (!existingConnection) {
+        setComposerError("Connection not found.");
+        return;
+      }
+
+      if (runtimeData.source === "runtime" && !editingConnectionId.startsWith("draft-")) {
+        setIsSavingConnection(true);
+
+        try {
+          const updatedProfile = await localRuntimeClient.updateConnection(
+            editingConnectionId,
+            profileRequest,
+          );
+
+          setSelectedConnectionId(updatedProfile.connection.id);
+          setRuntimeData((currentData) => ({
+            ...currentData,
+            capabilities: createEmptyCapabilitySummary(updatedProfile.connection.id),
+            connections: currentData.connections.map((connection) =>
+              connection.id === updatedProfile.connection.id
+                ? updatedProfile.connection
+                : connection,
+            ),
+            error: null,
+          }));
+          closeComposer();
+
+          if (updatedProfile.connection.transport === "stdio") {
+            await loadConnectionCapabilities(updatedProfile.connection.id);
+          }
+        } catch (error) {
+          setComposerError(getErrorMessage(error));
+        } finally {
+          setIsSavingConnection(false);
+        }
+        return;
+      }
+
+      const updatedDraft: ConnectionProfile = {
+        ...existingConnection,
+        ...profileRequest,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setDraftConnections((currentConnections) =>
+        currentConnections.map((connection) =>
+          connection.id === updatedDraft.id ? updatedDraft : connection,
+        ),
+      );
+      setSelectedConnectionId(updatedDraft.id);
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        capabilities: createEmptyCapabilitySummary(updatedDraft.id),
+      }));
+      closeComposer();
+      return;
+    }
+
     if (runtimeData.source === "runtime") {
-      setIsCreatingConnection(true);
+      setIsSavingConnection(true);
 
       try {
         const createdProfile = await localRuntimeClient.createConnection(profileRequest);
@@ -538,8 +656,7 @@ export function App() {
           ],
           error: null,
         }));
-        setIsComposerOpen(false);
-        resetForm();
+        closeComposer();
 
         if (createdProfile.connection.transport === "stdio") {
           await loadConnectionCapabilities(createdProfile.connection.id);
@@ -547,7 +664,7 @@ export function App() {
       } catch (error) {
         setComposerError(getErrorMessage(error));
       } finally {
-        setIsCreatingConnection(false);
+        setIsSavingConnection(false);
       }
       return;
     }
@@ -566,8 +683,7 @@ export function App() {
       ...currentData,
       capabilities: createEmptyCapabilitySummary(profile.id),
     }));
-    setIsComposerOpen(false);
-    resetForm();
+    closeComposer();
   }
 
   async function handleSelectConnection(connectionId: string) {
@@ -680,7 +796,7 @@ export function App() {
             <button
               aria-expanded={isComposerOpen}
               className="ghost-button"
-              onClick={() => setIsComposerOpen((isOpen) => !isOpen)}
+              onClick={openNewConnectionComposer}
               type="button"
             >
               + New
@@ -689,6 +805,11 @@ export function App() {
 
           {isComposerOpen ? (
             <form className="connection-composer" onSubmit={handleSubmit}>
+              <div className="composer-header">
+                <h3>{editingConnectionId ? "Edit connection" : "New connection"}</h3>
+                {editingConnectionId ? <small>{editingConnectionId}</small> : null}
+              </div>
+
               <label className="field compact">
                 <span>Name</span>
                 <input
@@ -849,19 +970,21 @@ export function App() {
               {composerError ? <small className="inline-error">{composerError}</small> : null}
 
               <div className="form-actions">
-                <button onClick={resetForm} type="button">
-                  Reset
+                <button onClick={closeComposer} type="button">
+                  Cancel
                 </button>
                 <button
                   className="primary"
-                  disabled={!canCreateConnection || isCreatingConnection}
+                  disabled={!canSaveConnection || isSavingConnection}
                   type="submit"
                 >
-                  {isCreatingConnection
-                    ? "Creating"
-                    : runtimeData.source === "runtime"
-                      ? "Create profile"
-                      : "Create draft"}
+                  {isSavingConnection
+                    ? "Saving"
+                    : editingConnectionId
+                      ? "Save profile"
+                      : runtimeData.source === "runtime"
+                        ? "Create profile"
+                        : "Create draft"}
                 </button>
               </div>
             </form>
@@ -925,6 +1048,15 @@ export function App() {
             {runtimeTone === "fallback" ? (
               <span className="warning-pill">Fallback data</span>
             ) : null}
+            <button
+              disabled={!selectedConnection}
+              onClick={() =>
+                selectedConnection ? openEditConnectionComposer(selectedConnection) : undefined
+              }
+              type="button"
+            >
+              Edit
+            </button>
             <button disabled type="button">
               Replay soon
             </button>

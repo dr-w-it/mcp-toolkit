@@ -121,7 +121,8 @@ Implemented so far:
 - a structured JSON tool request editor and formatted/raw response viewer
 - runtime status handling with fallback development data when the local runtime
   is unavailable
-- runtime-backed in-memory connection profiles for `stdio`, HTTP, and SSE shapes
+- runtime-backed in-memory connection profiles for creating, listing, selecting,
+  and editing `stdio`, HTTP, and SSE shapes
 - local runtime handling for profile env vars and auth headers without echoing
   secret values in list responses
 - Docker Compose local development for the web UI and runtime

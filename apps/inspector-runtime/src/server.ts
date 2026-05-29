@@ -15,6 +15,7 @@ import type {
   ToolCallRequest,
   ToolCallResponse,
   TraceEntry,
+  UpdateConnectionProfileResponse,
 } from "@dr-w/core";
 import {
   createMcpClient,
@@ -89,7 +90,7 @@ function getAllowedOrigin(request: IncomingMessage) {
 function sendJson(request: IncomingMessage, response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, {
     "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
     "Access-Control-Allow-Origin": getAllowedOrigin(request),
     "Content-Type": "application/json; charset=utf-8",
     Vary: "Origin",
@@ -260,7 +261,10 @@ function assertHttpUrl(value: string | undefined, field: string, errors: string[
   }
 }
 
-function validateConnectionProfileRequest(body: unknown): ConnectionProfile {
+function validateConnectionProfileRequest(
+  body: unknown,
+  existingProfile?: ConnectionProfile,
+): ConnectionProfile {
   const errors: string[] = [];
 
   if (!isRecord(body)) {
@@ -320,10 +324,10 @@ function validateConnectionProfileRequest(body: unknown): ConnectionProfile {
   return {
     args,
     command,
-    createdAt: timestamp,
-    env,
-    headers,
-    id: createConnectionId(name),
+    createdAt: existingProfile?.createdAt ?? timestamp,
+    env: env ?? existingProfile?.env,
+    headers: transport === "stdio" ? undefined : headers ?? existingProfile?.headers,
+    id: existingProfile?.id ?? createConnectionId(name),
     name,
     transport,
     updatedAt: timestamp,
@@ -460,6 +464,54 @@ const server = createServer(async (request, response) => {
       };
 
       sendJson(request, response, 201, responseBody);
+    } catch (error) {
+      if (error instanceof ConnectionProfileValidationError) {
+        sendJson(request, response, 400, {
+          details: error.details,
+          error: error.message,
+        });
+        return;
+      }
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+    }
+    return;
+  }
+
+  const connectionMatch = url.pathname.match(/^\/connections\/([^/]+)$/);
+
+  if (request.method === "PUT" && connectionMatch) {
+    const connectionId = decodeURIComponent(connectionMatch[1] ?? "");
+    const profileIndex = connectionProfiles.findIndex((item) => item.id === connectionId);
+
+    if (profileIndex < 0) {
+      sendJson(request, response, 404, { error: "Connection not found" });
+      return;
+    }
+
+    let body: unknown;
+
+    try {
+      body = await readJsonBody(request);
+    } catch {
+      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      return;
+    }
+
+    try {
+      const profile = validateConnectionProfileRequest(
+        body,
+        connectionProfiles[profileIndex],
+      );
+      connectionProfiles[profileIndex] = profile;
+      closeMcpConnection(profile.id);
+
+      const responseBody: UpdateConnectionProfileResponse = {
+        connection: toPublicConnectionProfile(profile),
+      };
+
+      sendJson(request, response, 200, responseBody);
     } catch (error) {
       if (error instanceof ConnectionProfileValidationError) {
         sendJson(request, response, 400, {

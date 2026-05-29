@@ -99,6 +99,40 @@ Invalid profile shapes return JSON errors with a `details` array:
 }
 ```
 
+```http
+PUT /connections/:connectionId
+Content-Type: application/json
+```
+
+Request type: `UpdateConnectionProfileRequest`
+
+```json
+{
+  "name": "Everything test server",
+  "transport": "stdio",
+  "command": "npx -y @modelcontextprotocol/server-everything"
+}
+```
+
+Response type: `UpdateConnectionProfileResponse`
+
+```json
+{
+  "connection": {
+    "id": "local-filesystem-server",
+    "name": "Everything test server",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-everything",
+    "createdAt": "2026-05-29T10:30:00.000Z",
+    "updatedAt": "2026-05-29T10:45:00.000Z"
+  }
+}
+```
+
+Updating a profile keeps its `id` stable and closes any currently open MCP
+connection for that profile so the next capability discovery or tool call uses
+the updated settings.
+
 ## Capabilities
 
 ```http

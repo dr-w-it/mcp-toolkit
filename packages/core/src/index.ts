@@ -27,6 +27,12 @@ export interface CreateConnectionProfileResponse {
   connection: ConnectionProfile;
 }
 
+export type UpdateConnectionProfileRequest = CreateConnectionProfileRequest;
+
+export interface UpdateConnectionProfileResponse {
+  connection: ConnectionProfile;
+}
+
 export interface ToolDefinition {
   name: string;
   description?: string;

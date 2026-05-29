@@ -7,6 +7,8 @@ import type {
   ListConnectionsResponse,
   ListHistoryResponse,
   RuntimeHealthResponse,
+  UpdateConnectionProfileRequest,
+  UpdateConnectionProfileResponse,
 } from "@dr-w/core";
 
 export interface LocalRuntimeClientOptions {
@@ -36,6 +38,18 @@ export class LocalRuntimeClient {
     signal?: AbortSignal,
   ): Promise<CreateConnectionProfileResponse> {
     return this.postJson<CreateConnectionProfileResponse>("/connections", profile, signal);
+  }
+
+  updateConnection(
+    connectionId: string,
+    profile: UpdateConnectionProfileRequest,
+    signal?: AbortSignal,
+  ): Promise<UpdateConnectionProfileResponse> {
+    return this.putJson<UpdateConnectionProfileResponse>(
+      `/connections/${encodeURIComponent(connectionId)}`,
+      profile,
+      signal,
+    );
   }
 
   getCapabilities(
@@ -99,6 +113,28 @@ export class LocalRuntimeClient {
 
     if (!response.ok) {
       throw new Error(await getRuntimeErrorMessage(response, `POST ${path}`));
+    }
+
+    return (await response.json()) as TResponse;
+  }
+
+  private async putJson<TResponse>(
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<TResponse> {
+    const response = await this.fetcher(`${this.baseUrl}${path}`, {
+      body: JSON.stringify(body),
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      method: "PUT",
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(await getRuntimeErrorMessage(response, `PUT ${path}`));
     }
 
     return (await response.json()) as TResponse;

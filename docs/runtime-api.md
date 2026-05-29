@@ -57,6 +57,47 @@ Response type: `ListConnectionsResponse`
 
 Connection profiles may include `args`, `url`, `headers`, and `env` when the
 transport needs them. Local mode should keep these values local to the runtime.
+List responses omit `headers` and `env` values so secrets are not echoed back to
+the browser after profile creation.
+
+```http
+POST /connections
+Content-Type: application/json
+```
+
+Request type: `CreateConnectionProfileRequest`
+
+```json
+{
+  "name": "Local filesystem server",
+  "transport": "stdio",
+  "command": "npx -y @modelcontextprotocol/server-filesystem ./"
+}
+```
+
+Response type: `CreateConnectionProfileResponse`
+
+```json
+{
+  "connection": {
+    "id": "local-filesystem-server",
+    "name": "Local filesystem server",
+    "transport": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-filesystem ./",
+    "createdAt": "2026-05-29T10:30:00.000Z",
+    "updatedAt": "2026-05-29T10:30:00.000Z"
+  }
+}
+```
+
+Invalid profile shapes return JSON errors with a `details` array:
+
+```json
+{
+  "error": "Invalid connection profile",
+  "details": ["command is required for stdio profiles"]
+}
+```
 
 ## Capabilities
 

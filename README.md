@@ -95,6 +95,8 @@ Project documentation lives in `docs/`.
 
 - `docs/architecture.md` describes the intended high-level architecture.
 - `docs/product-decisions.md` records early product decisions.
+- `docs/test-mcp-servers.md` lists MCP servers useful for local Inspector
+  testing.
 
 ## Current Status
 
@@ -119,14 +121,15 @@ Implemented so far:
 - a structured JSON tool request editor and formatted/raw response viewer
 - runtime status handling with fallback development data when the local runtime
   is unavailable
-- draft connection profile UI for `stdio`, HTTP, and SSE, including env vars and
-  headers at the UI level
+- runtime-backed in-memory connection profiles for `stdio`, HTTP, and SSE shapes
+- local runtime handling for profile env vars and auth headers without echoing
+  secret values in list responses
 - Docker Compose local development for the web UI and runtime
 
 Important current limits:
 
 - HTTP and SSE MCP transports are not implemented yet
-- draft connection profiles are local UI state only
+- connection profiles are not persisted across runtime restarts yet
 - history and replay data are in memory only
 - trace import/export and persistence are not implemented yet
 

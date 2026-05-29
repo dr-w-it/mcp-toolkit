@@ -1,4 +1,6 @@
 import type {
+  CreateConnectionProfileRequest,
+  CreateConnectionProfileResponse,
   ExecuteToolCallResponse,
   GetConnectionCapabilitiesResponse,
   JsonValue,
@@ -27,6 +29,13 @@ export class LocalRuntimeClient {
 
   listConnections(signal?: AbortSignal): Promise<ListConnectionsResponse> {
     return this.getJson<ListConnectionsResponse>("/connections", signal);
+  }
+
+  createConnection(
+    profile: CreateConnectionProfileRequest,
+    signal?: AbortSignal,
+  ): Promise<CreateConnectionProfileResponse> {
+    return this.postJson<CreateConnectionProfileResponse>("/connections", profile, signal);
   }
 
   getCapabilities(
@@ -98,9 +107,16 @@ export class LocalRuntimeClient {
 
 async function getRuntimeErrorMessage(response: Response, requestLabel: string) {
   try {
-    const body = (await response.json()) as { error?: unknown };
+    const body = (await response.json()) as { details?: unknown; error?: unknown };
 
     if (typeof body.error === "string" && body.error) {
+      if (
+        Array.isArray(body.details) &&
+        body.details.every((detail) => typeof detail === "string")
+      ) {
+        return `${body.error}: ${body.details.join("; ")}`;
+      }
+
       return body.error;
     }
   } catch {

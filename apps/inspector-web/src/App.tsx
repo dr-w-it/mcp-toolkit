@@ -3,6 +3,7 @@ import type {
   CapabilitySummary,
   ConnectionProfile,
   ConnectionTransport,
+  CreateConnectionProfileRequest,
   ExecuteToolCallResponse,
   JsonObject,
   JsonValue,
@@ -180,6 +181,8 @@ export function App() {
   });
   const [draftConnections, setDraftConnections] = useState<ConnectionProfile[]>([]);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [isCreatingConnection, setIsCreatingConnection] = useState(false);
   const [name, setName] = useState("");
   const [transport, setTransport] = useState<ConnectionTransport>("stdio");
   const [command, setCommand] = useState("");
@@ -251,7 +254,7 @@ export function App() {
     schemas.find((schema) => schema.id === selectedCapabilityKeys.schemas) ?? schemas[0];
   const runtimeTone = getRuntimeTone(runtimeData);
   const isRemoteTransport = transport === "http" || transport === "sse";
-  const canCreateDraft =
+  const canCreateConnection =
     name.trim().length > 0 &&
     ((transport === "stdio" && command.trim().length > 0) ||
       (isRemoteTransport && url.trim().length > 0));
@@ -385,10 +388,10 @@ export function App() {
           ? await localRuntimeClient.getCapabilities(nextSelectedConnectionId, signal)
           : createEmptyCapabilitySummary("runtime");
 
+        setDraftConnections([]);
         setSelectedConnectionId((currentId) =>
           currentId &&
-          (currentId.startsWith("draft-") ||
-            nextConnections.some((connection) => connection.id === currentId))
+          nextConnections.some((connection) => connection.id === currentId)
             ? currentId
             : nextSelectedConnectionId,
         );
@@ -450,6 +453,7 @@ export function App() {
     setTransport("stdio");
     setCommand("");
     setUrl("");
+    setComposerError(null);
     setEnvRows([createBlankRow("env")]);
     setHeaderRows([createBlankRow("header")]);
   }
@@ -476,18 +480,82 @@ export function App() {
     return nextRows.length > 0 ? nextRows : [createBlankRow(prefix)];
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function loadConnectionCapabilities(connectionId: string) {
+    setRuntimeData((currentData) => ({
+      ...currentData,
+      error: null,
+      isLoading: true,
+    }));
+
+    try {
+      const capabilities = await localRuntimeClient.getCapabilities(connectionId);
+
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        capabilities,
+        error: null,
+        isLoading: false,
+      }));
+    } catch (error) {
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        error: getErrorMessage(error),
+        isLoading: false,
+      }));
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    const profileRequest: CreateConnectionProfileRequest = {
+      command: transport === "stdio" ? command.trim() : undefined,
+      env: rowsToRecord(envRows),
+      headers: isRemoteTransport ? rowsToRecord(headerRows) : undefined,
+      name: name.trim(),
+      transport,
+      url: isRemoteTransport ? url.trim() : undefined,
+    };
+
+    setComposerError(null);
+
+    if (runtimeData.source === "runtime") {
+      setIsCreatingConnection(true);
+
+      try {
+        const createdProfile = await localRuntimeClient.createConnection(profileRequest);
+
+        setDraftConnections([]);
+        setSelectedConnectionId(createdProfile.connection.id);
+        setRuntimeData((currentData) => ({
+          ...currentData,
+          capabilities: createEmptyCapabilitySummary(createdProfile.connection.id),
+          connections: [
+            createdProfile.connection,
+            ...currentData.connections.filter(
+              (connection) => connection.id !== createdProfile.connection.id,
+            ),
+          ],
+          error: null,
+        }));
+        setIsComposerOpen(false);
+        resetForm();
+
+        if (createdProfile.connection.transport === "stdio") {
+          await loadConnectionCapabilities(createdProfile.connection.id);
+        }
+      } catch (error) {
+        setComposerError(getErrorMessage(error));
+      } finally {
+        setIsCreatingConnection(false);
+      }
+      return;
+    }
 
     const now = new Date().toISOString();
     const profile: ConnectionProfile = {
+      ...profileRequest,
       id: `draft-${Date.now()}`,
-      name: name.trim(),
-      transport,
-      command: transport === "stdio" ? command.trim() : undefined,
-      url: isRemoteTransport ? url.trim() : undefined,
-      env: rowsToRecord(envRows),
-      headers: isRemoteTransport ? rowsToRecord(headerRows) : undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -518,28 +586,7 @@ export function App() {
       return;
     }
 
-    setRuntimeData((currentData) => ({
-      ...currentData,
-      error: null,
-      isLoading: true,
-    }));
-
-    try {
-      const capabilities = await localRuntimeClient.getCapabilities(connectionId);
-
-      setRuntimeData((currentData) => ({
-        ...currentData,
-        capabilities,
-        error: null,
-        isLoading: false,
-      }));
-    } catch (error) {
-      setRuntimeData((currentData) => ({
-        ...currentData,
-        error: getErrorMessage(error),
-        isLoading: false,
-      }));
-    }
+    await loadConnectionCapabilities(connectionId);
   }
 
   function handleSelectCapability(itemId: string) {
@@ -799,12 +846,22 @@ export function App() {
                 </div>
               ) : null}
 
+              {composerError ? <small className="inline-error">{composerError}</small> : null}
+
               <div className="form-actions">
                 <button onClick={resetForm} type="button">
                   Reset
                 </button>
-                <button className="primary" disabled={!canCreateDraft} type="submit">
-                  Create draft
+                <button
+                  className="primary"
+                  disabled={!canCreateConnection || isCreatingConnection}
+                  type="submit"
+                >
+                  {isCreatingConnection
+                    ? "Creating"
+                    : runtimeData.source === "runtime"
+                      ? "Create profile"
+                      : "Create draft"}
                 </button>
               </div>
             </form>

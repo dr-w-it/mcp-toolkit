@@ -13,6 +13,20 @@ export interface ConnectionProfile {
   updatedAt: string;
 }
 
+export interface CreateConnectionProfileRequest {
+  name: string;
+  transport: ConnectionTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  headers?: Record<string, string>;
+  env?: Record<string, string>;
+}
+
+export interface CreateConnectionProfileResponse {
+  connection: ConnectionProfile;
+}
+
 export interface ToolDefinition {
   name: string;
   description?: string;

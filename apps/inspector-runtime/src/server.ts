@@ -1,6 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type {
   ConnectionProfile,
+  ConnectionTransport,
+  CreateConnectionProfileRequest,
+  CreateConnectionProfileResponse,
   ExecuteToolCallRequest,
   ExecuteToolCallResponse,
   JsonValue,
@@ -35,7 +38,7 @@ const allowedWebOrigins = new Set(
     .filter(Boolean),
 );
 
-const connections: ConnectionProfile[] = [
+const connectionProfiles: ConnectionProfile[] = [
   {
     id: "local-filesystem",
     name: "Local filesystem server",
@@ -62,6 +65,16 @@ const toolCallRequests = new Map<string, ToolCallRequest>();
 const toolCallResponses = new Map<string, ToolCallResponse>();
 const mcpClient = createMcpClient();
 const mcpConnections = new Map<string, McpConnection>();
+
+class ConnectionProfileValidationError extends Error {
+  readonly details: string[];
+
+  constructor(details: string[]) {
+    super("Invalid connection profile");
+    this.details = details;
+    this.name = "ConnectionProfileValidationError";
+  }
+}
 
 function getAllowedOrigin(request: IncomingMessage) {
   const origin = request.headers.origin;
@@ -121,6 +134,203 @@ async function getMcpConnection(profile: ConnectionProfile): Promise<McpConnecti
   return connection;
 }
 
+function toPublicConnectionProfile(profile: ConnectionProfile): ConnectionProfile {
+  const { env: _env, headers: _headers, ...publicProfile } = profile;
+
+  return publicProfile;
+}
+
+function createConnectionId(name: string) {
+  const baseSlug =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48)
+      .replace(/-+$/g, "") || "connection";
+  let id = baseSlug;
+  let index = 2;
+
+  while (connectionProfiles.some((profile) => profile.id === id)) {
+    id = `${baseSlug}-${index}`;
+    index += 1;
+  }
+
+  return id;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readStringField(
+  input: Record<string, unknown>,
+  field: keyof CreateConnectionProfileRequest,
+  errors: string[],
+  options: { required?: boolean } = {},
+) {
+  const value = input[field];
+
+  if (value === undefined || value === null) {
+    if (options.required) {
+      errors.push(`${field} is required`);
+    }
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    errors.push(`${field} must be a string`);
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+
+  if (options.required && !trimmedValue) {
+    errors.push(`${field} is required`);
+    return undefined;
+  }
+
+  return trimmedValue || undefined;
+}
+
+function readStringArrayField(
+  input: Record<string, unknown>,
+  field: keyof CreateConnectionProfileRequest,
+  errors: string[],
+) {
+  const value = input[field];
+
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    errors.push(`${field} must be an array of strings`);
+    return undefined;
+  }
+
+  return value;
+}
+
+function readStringRecordField(
+  input: Record<string, unknown>,
+  field: keyof CreateConnectionProfileRequest,
+  errors: string[],
+): Record<string, string> | undefined {
+  const value = input[field];
+
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    errors.push(`${field} must be an object with string keys and values`);
+    return undefined;
+  }
+
+  const entries = Object.entries(value);
+
+  if (
+    entries.some(
+      ([key, item]) => key.trim().length === 0 || typeof item !== "string",
+    )
+  ) {
+    errors.push(`${field} must be an object with non-empty string keys and string values`);
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    entries.map(([key, item]) => [key.trim(), item as string]),
+  );
+}
+
+function assertHttpUrl(value: string | undefined, field: string, errors: string[]) {
+  if (!value) {
+    return;
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      errors.push(`${field} must use http or https`);
+    }
+  } catch {
+    errors.push(`${field} must be a valid URL`);
+  }
+}
+
+function validateConnectionProfileRequest(body: unknown): ConnectionProfile {
+  const errors: string[] = [];
+
+  if (!isRecord(body)) {
+    throw new ConnectionProfileValidationError(["request body must be a JSON object"]);
+  }
+
+  const name = readStringField(body, "name", errors, { required: true });
+  const transport = readStringField(body, "transport", errors, { required: true }) as
+    | ConnectionTransport
+    | undefined;
+  const command = readStringField(body, "command", errors);
+  const url = readStringField(body, "url", errors);
+  const args = readStringArrayField(body, "args", errors);
+  const env = readStringRecordField(body, "env", errors);
+  const headers = readStringRecordField(body, "headers", errors);
+
+  if (transport !== "stdio" && transport !== "http" && transport !== "sse") {
+    errors.push("transport must be one of: stdio, http, sse");
+  }
+
+  if (transport === "stdio") {
+    if (!command) {
+      errors.push("command is required for stdio profiles");
+    }
+
+    if (url) {
+      errors.push("url is only supported for http and sse profiles");
+    }
+
+    if (headers) {
+      errors.push("headers are only supported for http and sse profiles");
+    }
+  }
+
+  if (transport === "http" || transport === "sse") {
+    if (!url) {
+      errors.push("url is required for http and sse profiles");
+    }
+
+    if (command) {
+      errors.push("command is only supported for stdio profiles");
+    }
+
+    if (args) {
+      errors.push("args are only supported for stdio profiles");
+    }
+
+    assertHttpUrl(url, "url", errors);
+  }
+
+  if (errors.length > 0 || !name || !transport) {
+    throw new ConnectionProfileValidationError(errors);
+  }
+
+  const timestamp = new Date().toISOString();
+
+  return {
+    args,
+    command,
+    createdAt: timestamp,
+    env,
+    headers,
+    id: createConnectionId(name),
+    name,
+    transport,
+    updatedAt: timestamp,
+    url,
+  };
+}
+
 function closeMcpConnection(connectionId: string) {
   const connection = mcpConnections.get(connectionId);
   mcpConnections.delete(connectionId);
@@ -141,7 +351,7 @@ async function createToolCall(
     input,
     createdAt: startedAt.toISOString(),
   };
-  const connection = connections.find((item) => item.id === connectionId);
+  const connection = connectionProfiles.find((item) => item.id === connectionId);
 
   if (!connection) {
     throw new Error("Connection not found");
@@ -223,9 +433,45 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && url.pathname === "/connections") {
-    const body: ListConnectionsResponse = { connections };
+    const body: ListConnectionsResponse = {
+      connections: connectionProfiles.map(toPublicConnectionProfile),
+    };
 
     sendJson(request, response, 200, body);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/connections") {
+    let body: unknown;
+
+    try {
+      body = await readJsonBody(request);
+    } catch {
+      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      return;
+    }
+
+    try {
+      const profile = validateConnectionProfileRequest(body);
+      connectionProfiles.unshift(profile);
+
+      const responseBody: CreateConnectionProfileResponse = {
+        connection: toPublicConnectionProfile(profile),
+      };
+
+      sendJson(request, response, 201, responseBody);
+    } catch (error) {
+      if (error instanceof ConnectionProfileValidationError) {
+        sendJson(request, response, 400, {
+          details: error.details,
+          error: error.message,
+        });
+        return;
+      }
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+    }
     return;
   }
 
@@ -233,7 +479,7 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && capabilitiesMatch) {
     const connectionId = decodeURIComponent(capabilitiesMatch[1] ?? "");
-    const connection = connections.find((item) => item.id === connectionId);
+    const connection = connectionProfiles.find((item) => item.id === connectionId);
 
     if (!connection) {
       sendJson(request, response, 404, { error: "Connection not found" });
@@ -263,7 +509,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && toolCallMatch) {
     const connectionId = decodeURIComponent(toolCallMatch[1] ?? "");
     const toolName = decodeURIComponent(toolCallMatch[2] ?? "");
-    const connection = connections.find((item) => item.id === connectionId);
+    const connection = connectionProfiles.find((item) => item.id === connectionId);
 
     if (!connection) {
       sendJson(request, response, 404, { error: "Connection not found" });

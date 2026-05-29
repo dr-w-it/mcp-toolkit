@@ -49,12 +49,14 @@ Current implementation status:
   through `packages/mcp-client`
 - tool call responses preserve formatted output and raw protocol data for the
   response viewer
+- the runtime can create and list in-memory connection profiles for `stdio`,
+  HTTP, and SSE shapes
 - the UI has fallback development data when the runtime is unavailable
 - Docker Compose can run the web UI and runtime locally
 
 Remaining MVP work:
 
-- persist or otherwise manage local connection profiles
+- persist local connection profiles once a secret storage/redaction policy exists
 - persist request history in local storage, local files, or SQLite
 - harden replay and error surfaces around real runtime execution
 - define trace import/export format and UI flow
@@ -94,6 +96,9 @@ core browser-cannot-do-this runtime use case.
 ### Step 2: Runtime Connection Profiles
 
 Goal: make the connection setup flow real instead of UI-only draft state.
+
+Status: complete for runtime-managed in-memory profiles; durable persistence is
+intentionally deferred until there is a storage and redaction policy.
 
 - add runtime endpoints for creating/listing/selecting local connection profiles
 - validate profile shape for `stdio`, HTTP, and SSE

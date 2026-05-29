@@ -4,6 +4,7 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
+  font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -16,6 +17,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow: hidden;
   background: #0f1115;
 }
 
@@ -54,7 +56,7 @@ button.primary {
   border-color: #3abff8;
   color: #051017;
   background: #3abff8;
-  font-weight: 800;
+  font-weight: 650;
 }
 
 h1,
@@ -66,16 +68,19 @@ p {
 
 h1 {
   font-size: 18px;
+  font-weight: 650;
   line-height: 1.2;
 }
 
 h2 {
   font-size: 18px;
+  font-weight: 650;
   line-height: 1.25;
 }
 
 h3 {
   font-size: 14px;
+  font-weight: 650;
   line-height: 1.35;
 }
 
@@ -118,17 +123,19 @@ textarea::placeholder {
 .app-shell {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: #0f1115;
 }
 
 .sidebar {
-  display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
   min-width: 0;
-  max-height: 100vh;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid #2a2f3a;
   background: #11141a;
   padding: 18px;
@@ -151,7 +158,7 @@ textarea::placeholder {
   color: #3abff8;
   background: #171b21;
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 750;
 }
 
 .runtime-status {
@@ -221,12 +228,28 @@ textarea::placeholder {
   color: #f59e0b;
   background: rgba(245, 158, 11, 0.06);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 650;
   text-transform: uppercase;
 }
 
 .sidebar-section {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
+  min-height: 0;
+}
+
+.connections-section {
+  flex: 0 1 42%;
+}
+
+.connections-section:has(.connection-composer) {
+  flex-basis: 58%;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.connections-section:has(.connection-composer) .connection-list {
+  min-height: 0;
 }
 
 .section-header,
@@ -248,7 +271,8 @@ textarea::placeholder {
 
 .section-header h2 {
   color: #c8d1dc;
-  font-size: 18px;
+  font-size: 17px;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -300,7 +324,7 @@ textarea::placeholder {
   min-width: 0;
   color: #eef2f7;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .field.compact {
@@ -368,6 +392,15 @@ textarea::placeholder {
 .capability-list {
   display: grid;
   gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.connection-list,
+.timeline {
+  align-content: start;
+  padding-right: 2px;
 }
 
 .connection-item {
@@ -402,6 +435,7 @@ textarea::placeholder {
 }
 
 .timeline-section {
+  flex: 1 1 0;
   min-height: 0;
 }
 
@@ -437,7 +471,9 @@ textarea::placeholder {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .target-bar {
@@ -474,7 +510,7 @@ textarea::placeholder {
 .eyebrow {
   color: #9aa4b2;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -504,7 +540,7 @@ textarea::placeholder {
   color: #c8d1dc;
   background: #171b21;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 650;
 }
 
 .warning-pill {
@@ -518,6 +554,7 @@ textarea::placeholder {
   grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .capability-pane {
@@ -539,9 +576,8 @@ textarea::placeholder {
 
 .tabs button {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-width: 0;
-  width: 92px;
   min-height: 48px;
   align-items: center;
   justify-content: center;
@@ -551,7 +587,8 @@ textarea::placeholder {
   border-radius: 0;
   background: transparent;
   color: #9aa4b2;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .tabs button:last-child {
@@ -589,6 +626,7 @@ textarea::placeholder {
   min-height: 0;
   overflow: auto;
   padding: 0;
+  scrollbar-gutter: stable;
 }
 
 .capability-card {
@@ -621,15 +659,16 @@ textarea::placeholder {
 .capability-card small {
   color: #8b7cff;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 .detail-pane {
   display: grid;
-  grid-template-rows: auto minmax(280px, 0.58fr) minmax(220px, 0.42fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(180px, 32%);
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: #0f1115;
 }
 
@@ -655,6 +694,7 @@ textarea::placeholder {
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 20px;
+  font-weight: 600;
 }
 
 .detail-header p:last-child {
@@ -699,7 +739,7 @@ textarea::placeholder {
 .code-panel-header span {
   color: #9aa4b2;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -714,7 +754,7 @@ textarea::placeholder {
 .json-editor span {
   color: #eef2f7;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .json-editor textarea {
@@ -745,7 +785,7 @@ textarea::placeholder {
   margin-top: 4px;
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -790,9 +830,11 @@ pre {
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 13px;
+  font-weight: 400;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  scrollbar-gutter: stable;
 }
 
 .response-output {
@@ -830,19 +872,32 @@ pre {
 }
 
 @media (max-width: 900px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .sidebar {
-    grid-template-rows: auto;
+    overflow: visible;
     max-height: none;
     border-right: 0;
     border-bottom: 1px solid #2a2f3a;
   }
 
+  .sidebar-section {
+    display: block;
+  }
+
   .workbench {
-    min-height: auto;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .target-bar,
@@ -869,6 +924,7 @@ pre {
 
   .detail-pane {
     grid-template-rows: auto auto minmax(260px, 1fr);
+    overflow: visible;
   }
 
   .json-editor textarea {

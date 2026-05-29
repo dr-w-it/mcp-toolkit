@@ -790,7 +790,7 @@ export function App() {
           <div className="fallback-banner">Fallback data</div>
         ) : null}
 
-        <section className="sidebar-section">
+        <section className="sidebar-section connections-section">
           <div className="section-header">
             <h2>Connections</h2>
             <button

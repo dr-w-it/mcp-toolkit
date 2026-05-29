@@ -44,20 +44,21 @@ Current implementation status:
 - the local runtime exposes the first typed API contract
 - the UI can read runtime health, connections, capabilities, and history
 - the UI can submit structured JSON tool calls to the runtime
-- the runtime returns mock tool call responses using the shared request,
-  response, raw protocol, and trace shapes
+- the runtime can launch a real local `stdio` MCP filesystem server
+- the runtime can discover real MCP capabilities and execute real MCP tool calls
+  through `packages/mcp-client`
+- tool call responses preserve formatted output and raw protocol data for the
+  response viewer
 - the UI has fallback development data when the runtime is unavailable
 - Docker Compose can run the web UI and runtime locally
 
 Remaining MVP work:
 
-- implement real MCP transport support in `packages/mcp-client`
-- wire the runtime to real MCP capability discovery
-- execute real tool calls through the runtime
 - persist or otherwise manage local connection profiles
 - persist request history in local storage, local files, or SQLite
-- wire replay end to end from UI history to runtime execution
+- harden replay and error surfaces around real runtime execution
 - define trace import/export format and UI flow
+- add HTTP and SSE MCP transports after the local `stdio` path is stable
 
 Out of scope for the MVP:
 
@@ -77,6 +78,8 @@ These are the next concrete steps before moving beyond the MVP.
 ### Step 1: Real `stdio` MCP Transport
 
 Goal: make MCP Inspector useful against one real local MCP server path.
+
+Status: complete for the first local filesystem-server path.
 
 - implement a first `stdio` adapter in `packages/mcp-client`
 - launch and manage a local MCP server process from the runtime
@@ -102,6 +105,9 @@ Goal: make the connection setup flow real instead of UI-only draft state.
 ### Step 3: Real Tool Calls and Error Surfaces
 
 Goal: make tool execution trustworthy for daily debugging.
+
+Status: partially complete for `stdio`; remaining work is focused on broader
+error states and UI polish.
 
 - call real MCP tools through the selected runtime connection
 - preserve formatted and raw request/response views

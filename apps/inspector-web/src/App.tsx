@@ -247,6 +247,7 @@ export function App() {
   );
   const [toolExecutionError, setToolExecutionError] = useState<string | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
+  const [isReplayingTool, setIsReplayingTool] = useState(false);
   const [selectedTraceEntry, setSelectedTraceEntry] = useState<TraceArtifactEntry | null>(
     null,
   );
@@ -412,6 +413,10 @@ export function App() {
           trace: selectedTraceEntry.trace,
         }
     : null;
+  const selectedReplayRequestId =
+    selectedTraceEntry?.request?.id ?? selectedTraceEntry?.trace.requestId;
+  const canReplaySelectedTrace =
+    runtimeData.source === "runtime" && Boolean(selectedReplayRequestId);
   const responsePayload = toolExecutionError
     ? {
         error: toolExecutionError,
@@ -422,13 +427,18 @@ export function App() {
         ? {
             request: toolExecution.response.rawRequest,
             response: toolExecution.response.rawResponse,
+            trace: toolExecution.trace,
           }
         : {
-            durationMs: toolExecution.response.durationMs,
-            error: toolExecution.response.error,
-            output: toolExecution.response.output,
-            requestId: toolExecution.response.requestId,
-            status: toolExecution.response.status,
+            request: toolExecution.request,
+            response: {
+              durationMs: toolExecution.response.durationMs,
+              error: toolExecution.response.error,
+              output: toolExecution.response.output,
+              requestId: toolExecution.response.requestId,
+              status: toolExecution.response.status,
+            },
+            trace: toolExecution.trace,
           }
       : selectedTracePayload;
   const responseStatus =
@@ -817,6 +827,42 @@ export function App() {
     } catch (error) {
       setTraceTransferError(getErrorMessage(error));
       setSelectedTraceEntry({ trace: entry });
+    }
+  }
+
+  async function handleReplaySelectedTrace() {
+    if (!selectedReplayRequestId) {
+      return;
+    }
+
+    setTraceTransferError(null);
+    setToolExecution(null);
+    setToolExecutionError(null);
+    setIsReplayingTool(true);
+    setResponseViewMode("formatted");
+
+    try {
+      const result = await localRuntimeClient.replayToolCall({
+        requestId: selectedReplayRequestId,
+      });
+
+      setToolExecution(result);
+      setSelectedTraceEntry({
+        request: result.request,
+        response: result.response,
+        trace: result.trace,
+      });
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        traces: [
+          result.trace,
+          ...currentData.traces.filter((trace) => trace.id !== result.trace.id),
+        ],
+      }));
+    } catch (error) {
+      setToolExecutionError(getErrorMessage(error));
+    } finally {
+      setIsReplayingTool(false);
     }
   }
 
@@ -1225,8 +1271,12 @@ export function App() {
             >
               Edit
             </button>
-            <button disabled type="button">
-              Replay soon
+            <button
+              disabled={!canReplaySelectedTrace || isReplayingTool}
+              onClick={() => void handleReplaySelectedTrace()}
+              type="button"
+            >
+              {isReplayingTool ? "Replaying" : "Replay"}
             </button>
             <button
               className="primary"

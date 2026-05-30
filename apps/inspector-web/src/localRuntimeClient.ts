@@ -11,6 +11,8 @@ import type {
   JsonValue,
   ListConnectionsResponse,
   ListHistoryResponse,
+  ReplayToolCallRequest,
+  ReplayToolCallResponse,
   RuntimeHealthResponse,
   UpdateConnectionProfileRequest,
   UpdateConnectionProfileResponse,
@@ -105,6 +107,13 @@ export class LocalRuntimeClient {
       { input },
       signal,
     );
+  }
+
+  replayToolCall(
+    request: ReplayToolCallRequest,
+    signal?: AbortSignal,
+  ): Promise<ReplayToolCallResponse> {
+    return this.postJson<ReplayToolCallResponse>("/replay", request, signal);
   }
 
   private async getJson<TResponse>(path: string, signal?: AbortSignal): Promise<TResponse> {

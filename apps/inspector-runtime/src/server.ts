@@ -33,10 +33,12 @@ import {
   UnsupportedMcpTransportError,
   type McpConnection,
 } from "@dr-w/mcp-client";
+import { createHistoryStore, isTraceArtifactEntry } from "./historyStore.js";
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
 const webPort = process.env["INSPECTOR_WEB_PORT"] ?? "5000";
+const historyStore = createHistoryStore(process.env["INSPECTOR_HISTORY_PATH"]);
 const allowedWebOrigins = new Set(
   (
     process.env["INSPECTOR_WEB_ORIGINS"] ??
@@ -390,6 +392,10 @@ function getTraceRecord(trace: TraceEntry): TraceArtifactEntry {
   };
 }
 
+async function persistHistory() {
+  await historyStore.save(traces.map(getTraceRecord));
+}
+
 function exportTraceEntries(body: Partial<ExportTraceRequest>): TraceArtifactEntry[] {
   const traceIds = new Set(body.traceIds ?? []);
   const requestIds = new Set(body.requestIds ?? []);
@@ -406,25 +412,6 @@ function exportTraceEntries(body: Partial<ExportTraceRequest>): TraceArtifactEnt
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isTraceEntry(value: unknown): value is TraceEntry {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.id === "string" &&
-    typeof value.connectionId === "string" &&
-    typeof value.operation === "string" &&
-    (value.status === "success" || value.status === "error") &&
-    typeof value.startedAt === "string" &&
-    typeof value.durationMs === "number"
-  );
-}
-
-function isTraceArtifactEntry(value: unknown): value is TraceArtifactEntry {
-  return isRecord(value) && isTraceEntry(value.trace);
 }
 
 function isTraceArtifact(value: unknown): value is TraceArtifact {
@@ -495,6 +482,77 @@ function importTraceArtifact(artifact: TraceArtifact): TraceArtifactEntry[] {
 
     return importedEntry;
   });
+}
+
+function readNumericIdSuffix(id: string, prefix: string) {
+  if (!id.startsWith(prefix)) {
+    return undefined;
+  }
+
+  const suffix = id.slice(prefix.length);
+
+  if (!/^\d+$/.test(suffix)) {
+    return undefined;
+  }
+
+  return Number.parseInt(suffix, 10);
+}
+
+function refreshSequenceNumbers(entries: TraceArtifactEntry[]) {
+  const nextRequestNumber =
+    entries.reduce((largestNumber, entry) => {
+      const requestNumber = entry.request
+        ? readNumericIdSuffix(entry.request.id, "request-")
+        : undefined;
+
+      return Math.max(largestNumber, requestNumber ?? 0);
+    }, 0) + 1;
+  const nextLoadedTraceNumber =
+    entries.reduce((largestNumber, entry) => {
+      const traceNumber =
+        readNumericIdSuffix(entry.trace.id, "trace-") ??
+        readNumericIdSuffix(entry.trace.id, "imported-trace-");
+
+      return Math.max(largestNumber, traceNumber ?? 0);
+    }, 0) + 1;
+
+  nextToolCallRequestNumber = Math.max(1, nextRequestNumber);
+  nextTraceNumber = Math.max(1, nextLoadedTraceNumber);
+}
+
+function hydrateHistory(entries: TraceArtifactEntry[]) {
+  traces.splice(
+    0,
+    traces.length,
+    ...entries.map((entry) => entry.trace),
+  );
+  traceRecords.clear();
+  toolCallRequests.clear();
+  toolCallResponses.clear();
+
+  for (const entry of entries) {
+    traceRecords.set(entry.trace.id, entry);
+
+    if (entry.request) {
+      toolCallRequests.set(entry.request.id, entry.request);
+    }
+
+    if (entry.response) {
+      toolCallResponses.set(entry.response.requestId, entry.response);
+    }
+  }
+
+  refreshSequenceNumbers(entries);
+}
+
+async function loadPersistedHistory() {
+  const entries = await historyStore.load();
+
+  if (entries.length === 0) {
+    return;
+  }
+
+  hydrateHistory(entries);
 }
 
 async function createToolCall(
@@ -775,6 +833,7 @@ const server = createServer(async (request, response) => {
         tool.name,
         toolCallRequest.input ?? {},
       );
+      await persistHistory();
 
       sendJson(request, response, 200, toolCallResponse);
     } catch (error) {
@@ -850,6 +909,7 @@ const server = createServer(async (request, response) => {
     try {
       const importRequest = readImportTraceRequest(body);
       const imported = importTraceArtifact(importRequest.trace);
+      await persistHistory();
       const responseBody: ImportTraceResponse = {
         imported,
         traces,
@@ -898,10 +958,17 @@ const server = createServer(async (request, response) => {
       const trace: TraceEntry = {
         ...replayedCall.trace,
         operation: `replay ${originalRequest.toolName}`,
+        replayedFromRequestId: originalRequest.id,
         requestId: replayedCall.request.id,
       };
 
       traces[0] = trace;
+      traceRecords.set(trace.id, {
+        request: replayedCall.request,
+        response: replayedCall.response,
+        trace,
+      });
+      await persistHistory();
 
       const replayResponse: ReplayToolCallResponse = {
         replayedFromRequestId: originalRequest.id,
@@ -925,8 +992,13 @@ const server = createServer(async (request, response) => {
   sendJson(request, response, 404, { error: "Not found" });
 });
 
+await loadPersistedHistory();
+
 server.listen(port, host, () => {
   console.log(`Inspector Runtime listening on http://${host}:${port}`);
+  if (historyStore.storagePath) {
+    console.log(`Inspector Runtime history persistence: ${historyStore.storagePath}`);
+  }
 });
 
 async function closeRuntimeConnections() {

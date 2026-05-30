@@ -280,6 +280,24 @@ Response type: `ListHistoryResponse`
 History entries are runtime-local traces. A trace can include `requestId` when
 the operation can be replayed.
 
+Local history persistence is opt-in. Set `INSPECTOR_HISTORY_PATH` to a JSON
+file path before starting the runtime to keep history across runtime restarts:
+
+```sh
+INSPECTOR_HISTORY_PATH=.mcp-inspector/history.json ./dev.sh local
+```
+
+When enabled, the runtime stores trace entries, tool call requests, tool call
+responses, timing, connection ids, tool names, inputs, outputs, replay metadata,
+and raw request/response payloads needed for timeline inspection and replay. It
+does not store connection profile `env` values or HTTP/SSE `headers`, so
+secrets used to connect to MCP servers are not written to the history file.
+Replay after a restart requires the referenced connection profile id to exist in
+the runtime.
+
+To reset persisted history, stop the runtime and delete the configured JSON
+file. Unset `INSPECTOR_HISTORY_PATH` to return to process-only history.
+
 ```http
 GET /history/:traceId
 ```
@@ -452,7 +470,8 @@ Response type: `ReplayToolCallResponse`
     "status": "success",
     "startedAt": "2026-05-26T08:42:00.000Z",
     "durationMs": 118,
-    "requestId": "request-001"
+    "requestId": "request-003",
+    "replayedFromRequestId": "request-001"
   }
 }
 ```

@@ -105,6 +105,7 @@ export interface TraceEntry {
   error?: string;
   source?: "live" | "imported";
   importedAt?: string;
+  replayedFromRequestId?: string;
 }
 
 export interface TraceArtifactEntry {

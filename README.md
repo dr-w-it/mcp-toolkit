@@ -129,15 +129,16 @@ Implemented so far:
   and editing `stdio`, HTTP, and SSE shapes
 - local runtime handling for profile env vars and auth headers without echoing
   secret values in list responses
+- optional file-backed local request history and replay records
 - local trace import/export for captured history artifacts
 - Docker Compose local development for the web UI and runtime
 
 Important current limits:
 
 - connection profiles are not persisted across runtime restarts yet
-- history and replay data are in memory only
-- trace imports are in memory only and exports may include sensitive tool
-  inputs, outputs, or raw MCP payloads entered or returned during debugging
+- history and replay persistence is opt-in through `INSPECTOR_HISTORY_PATH`
+- trace exports and persisted history may include sensitive tool inputs,
+  outputs, or raw MCP payloads entered or returned during debugging
 
 ## Development
 
@@ -181,6 +182,18 @@ file when you need to change ports:
 ```sh
 cp .env.example .env
 ```
+
+To persist local request history and replay records across runtime restarts, set
+`INSPECTOR_HISTORY_PATH` to a local JSON file path before starting the runtime:
+
+```sh
+INSPECTOR_HISTORY_PATH=.mcp-inspector/history.json ./dev.sh local
+```
+
+The file stores trace entries plus captured request and response records. It
+does not store connection profile `env` values or HTTP/SSE `headers`. To reset
+persisted history, stop the runtime and delete the configured JSON file, or
+unset `INSPECTOR_HISTORY_PATH` to return to process-only history.
 
 ### Docker Compose
 

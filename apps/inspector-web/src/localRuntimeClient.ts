@@ -2,6 +2,11 @@ import type {
   CreateConnectionProfileRequest,
   CreateConnectionProfileResponse,
   ExecuteToolCallResponse,
+  ExportTraceRequest,
+  ExportTraceResponse,
+  GetTraceResponse,
+  ImportTraceRequest,
+  ImportTraceResponse,
   GetConnectionCapabilitiesResponse,
   JsonValue,
   ListConnectionsResponse,
@@ -64,6 +69,27 @@ export class LocalRuntimeClient {
 
   listHistory(signal?: AbortSignal): Promise<ListHistoryResponse> {
     return this.getJson<ListHistoryResponse>("/history", signal);
+  }
+
+  getTrace(traceId: string, signal?: AbortSignal): Promise<GetTraceResponse> {
+    return this.getJson<GetTraceResponse>(
+      `/history/${encodeURIComponent(traceId)}`,
+      signal,
+    );
+  }
+
+  exportTrace(
+    request: ExportTraceRequest = {},
+    signal?: AbortSignal,
+  ): Promise<ExportTraceResponse> {
+    return this.postJson<ExportTraceResponse>("/traces/export", request, signal);
+  }
+
+  importTrace(
+    request: ImportTraceRequest,
+    signal?: AbortSignal,
+  ): Promise<ImportTraceResponse> {
+    return this.postJson<ImportTraceResponse>("/traces/import", request, signal);
   }
 
   callTool(

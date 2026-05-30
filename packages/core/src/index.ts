@@ -103,7 +103,48 @@ export interface TraceEntry {
   durationMs: number;
   requestId?: string;
   error?: string;
+  source?: "live" | "imported";
+  importedAt?: string;
 }
+
+export interface TraceArtifactEntry {
+  trace: TraceEntry;
+  request?: ToolCallRequest;
+  response?: ToolCallResponse;
+}
+
+export interface TraceRedactionSummary {
+  excludedConnectionFields: string[];
+  notes: string[];
+}
+
+export interface TraceArtifact {
+  version: 1;
+  source: "mcp-inspector";
+  exportedAt: string;
+  redaction: TraceRedactionSummary;
+  entries: TraceArtifactEntry[];
+}
+
+export interface ExportTraceRequest {
+  traceIds?: string[];
+  requestIds?: string[];
+}
+
+export interface ExportTraceResponse {
+  trace: TraceArtifact;
+}
+
+export interface ImportTraceRequest {
+  trace: TraceArtifact;
+}
+
+export interface ImportTraceResponse {
+  imported: TraceArtifactEntry[];
+  traces: TraceEntry[];
+}
+
+export type GetTraceResponse = TraceArtifactEntry;
 
 export interface RuntimeHealthResponse {
   ok: true;

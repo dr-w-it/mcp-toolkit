@@ -270,6 +270,28 @@ textarea::placeholder {
   margin-bottom: 12px;
 }
 
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.section-actions button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .section-header h2 {
   color: #c8d1dc;
   font-size: 17px;
@@ -462,6 +484,17 @@ textarea::placeholder {
   color: #c8d1dc;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.timeline-item.selected {
+  border-color: rgba(58, 191, 248, 0.48);
+  background: rgba(58, 191, 248, 0.08);
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
+.timeline-item small {
+  text-align: right;
 }
 
 .sidebar-footer {
@@ -769,6 +802,12 @@ textarea::placeholder {
 
 .inline-error {
   color: #ef4444;
+}
+
+.trace-error {
+  display: block;
+  margin: -4px 0 10px;
+  overflow-wrap: anywhere;
 }
 
 .response-viewer {

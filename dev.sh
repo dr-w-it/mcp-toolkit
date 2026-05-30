@@ -74,19 +74,71 @@ run_workspace() {
 }
 
 load_env() {
+  local line
+  local key
+  local value
+
   if [[ -f "$ROOT_DIR/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$ROOT_DIR/.env"
-    set +a
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ "$line" == *"="* ]] || continue
+
+      key="${line%%=*}"
+      value="${line#*=}"
+      key="${key//[[:space:]]/}"
+
+      if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && -z "${!key+x}" ]]; then
+        export "$key=$value"
+      fi
+    done < "$ROOT_DIR/.env"
+  fi
+}
+
+is_port_open() {
+  local host="$1"
+  local port="$2"
+
+  bash -c ':</dev/tcp/$1/$2' _ "$host" "$port" >/dev/null 2>&1
+}
+
+assert_port_available() {
+  local label="$1"
+  local host="$2"
+  local port="$3"
+
+  if is_port_open "$host" "$port"; then
+    cat >&2 <<EOF
+Cannot start ${label}: ${host}:${port} is already in use.
+
+Use different ports, for example:
+
+  INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 VITE_INSPECTOR_RUNTIME_URL=http://127.0.0.1:18787 ./dev.sh local
+
+EOF
+    exit 1
   fi
 }
 
 run_local() {
   require_cmd npm
 
+  local web_host="${INSPECTOR_WEB_HOST:-127.0.0.1}"
+  local web_port="${INSPECTOR_WEB_PORT:-5000}"
+  local runtime_host="${INSPECTOR_RUNTIME_HOST:-127.0.0.1}"
+  local runtime_port="${INSPECTOR_RUNTIME_PORT:-8787}"
+
   local runtime_pid=""
   local web_pid=""
+
+  assert_port_available "inspector web" "$web_host" "$web_port"
+  assert_port_available "inspector runtime" "$runtime_host" "$runtime_port"
+
+  export INSPECTOR_WEB_HOST="$web_host"
+  export INSPECTOR_WEB_PORT="$web_port"
+  export INSPECTOR_RUNTIME_HOST="$runtime_host"
+  export INSPECTOR_RUNTIME_PORT="$runtime_port"
+  export VITE_INSPECTOR_RUNTIME_URL="${VITE_INSPECTOR_RUNTIME_URL:-http://${runtime_host}:${runtime_port}}"
 
   cleanup() {
     if [[ -n "$web_pid" ]]; then

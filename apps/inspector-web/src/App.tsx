@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import type {
   CapabilitySummary,
   ConnectionProfile,
@@ -10,6 +18,8 @@ import type {
   PromptDefinition,
   ResourceDefinition,
   RuntimeHealthResponse,
+  TraceArtifact,
+  TraceArtifactEntry,
   ToolDefinition,
   TraceEntry,
 } from "@dr-w/core";
@@ -237,8 +247,15 @@ export function App() {
   );
   const [toolExecutionError, setToolExecutionError] = useState<string | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
+  const [selectedTraceEntry, setSelectedTraceEntry] = useState<TraceArtifactEntry | null>(
+    null,
+  );
+  const [traceTransferError, setTraceTransferError] = useState<string | null>(null);
+  const [isExportingTrace, setIsExportingTrace] = useState(false);
+  const [isImportingTrace, setIsImportingTrace] = useState(false);
   const [responseViewMode, setResponseViewMode] =
     useState<ResponseViewMode>("formatted");
+  const traceFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const connections = useMemo(() => {
     const draftIds = new Set(draftConnections.map((connection) => connection.id));
@@ -374,6 +391,27 @@ export function App() {
         : activeCapabilityTab === "prompts"
           ? selectedPrompt?.name
           : selectedSchema?.id;
+  const selectedTracePayload = selectedTraceEntry
+    ? responseViewMode === "raw"
+      ? {
+          request: selectedTraceEntry.response?.rawRequest,
+          response: selectedTraceEntry.response?.rawResponse,
+          trace: selectedTraceEntry.trace,
+        }
+      : {
+          request: selectedTraceEntry.request,
+          response: selectedTraceEntry.response
+            ? {
+                durationMs: selectedTraceEntry.response.durationMs,
+                error: selectedTraceEntry.response.error,
+                output: selectedTraceEntry.response.output,
+                requestId: selectedTraceEntry.response.requestId,
+                status: selectedTraceEntry.response.status,
+              }
+            : undefined,
+          trace: selectedTraceEntry.trace,
+        }
+    : null;
   const responsePayload = toolExecutionError
     ? {
         error: toolExecutionError,
@@ -392,7 +430,11 @@ export function App() {
             requestId: toolExecution.response.requestId,
             status: toolExecution.response.status,
           }
-      : null;
+      : selectedTracePayload;
+  const responseStatus =
+    toolExecution?.response.status ??
+    selectedTraceEntry?.trace.status ??
+    (toolExecutionError ? "error" : "idle");
 
   const loadRuntimeData = useCallback(
     async (signal?: AbortSignal) => {
@@ -471,6 +513,7 @@ export function App() {
     setToolInputError(null);
     setToolExecution(null);
     setToolExecutionError(null);
+    setSelectedTraceEntry(null);
     setResponseViewMode("formatted");
   }, [selectedTool?.name]);
 
@@ -731,6 +774,7 @@ export function App() {
     setToolInputError(null);
     setToolExecution(null);
     setToolExecutionError(null);
+    setSelectedTraceEntry(null);
     setIsExecutingTool(true);
 
     try {
@@ -752,6 +796,88 @@ export function App() {
       setToolExecutionError(getErrorMessage(error));
     } finally {
       setIsExecutingTool(false);
+    }
+  }
+
+  async function handleSelectTrace(entry: TraceEntry) {
+    setTraceTransferError(null);
+    setToolExecution(null);
+    setToolExecutionError(null);
+    setResponseViewMode("formatted");
+
+    if (runtimeData.source !== "runtime") {
+      setSelectedTraceEntry({ trace: entry });
+      return;
+    }
+
+    try {
+      const traceEntry = await localRuntimeClient.getTrace(entry.id);
+
+      setSelectedTraceEntry(traceEntry);
+    } catch (error) {
+      setTraceTransferError(getErrorMessage(error));
+      setSelectedTraceEntry({ trace: entry });
+    }
+  }
+
+  async function handleExportTrace() {
+    if (runtimeData.source !== "runtime" || runtimeData.traces.length === 0) {
+      return;
+    }
+
+    setIsExportingTrace(true);
+    setTraceTransferError(null);
+
+    try {
+      const result = await localRuntimeClient.exportTrace({
+        traceIds: runtimeData.traces.map((trace) => trace.id),
+      });
+      const blob = new Blob([`${formatJson(result.trace)}\n`], {
+        type: "application/json",
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = `mcp-inspector-trace-${new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")}.json`;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setTraceTransferError(getErrorMessage(error));
+    } finally {
+      setIsExportingTrace(false);
+    }
+  }
+
+  async function handleImportTraceFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file || runtimeData.source !== "runtime") {
+      return;
+    }
+
+    setIsImportingTrace(true);
+    setTraceTransferError(null);
+
+    try {
+      const trace = JSON.parse(await file.text()) as TraceArtifact;
+      const result = await localRuntimeClient.importTrace({ trace });
+
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        traces: result.traces,
+      }));
+      setSelectedTraceEntry(result.imported[0] ?? null);
+      setToolExecution(null);
+      setToolExecutionError(null);
+      setResponseViewMode("formatted");
+    } catch (error) {
+      setTraceTransferError(getErrorMessage(error));
+    } finally {
+      setIsImportingTrace(false);
+      event.target.value = "";
     }
   }
 
@@ -1011,14 +1137,56 @@ export function App() {
         <section className="sidebar-section timeline-section">
           <div className="section-header">
             <h2>Timeline</h2>
+            <div className="section-actions">
+              <button
+                disabled={
+                  runtimeData.source !== "runtime" ||
+                  runtimeData.traces.length === 0 ||
+                  isExportingTrace
+                }
+                onClick={() => void handleExportTrace()}
+                type="button"
+              >
+                {isExportingTrace ? "Exporting" : "Export"}
+              </button>
+              <button
+                disabled={runtimeData.source !== "runtime" || isImportingTrace}
+                onClick={() => traceFileInputRef.current?.click()}
+                type="button"
+              >
+                {isImportingTrace ? "Importing" : "Import"}
+              </button>
+              <input
+                accept="application/json,.json"
+                className="file-input"
+                hidden
+                onChange={(event) => void handleImportTraceFile(event)}
+                ref={traceFileInputRef}
+                tabIndex={-1}
+                type="file"
+              />
+            </div>
           </div>
+          {traceTransferError ? (
+            <small className="inline-error trace-error">{traceTransferError}</small>
+          ) : null}
           <div className="timeline">
             {runtimeData.traces.length > 0 ? (
               runtimeData.traces.map((entry) => (
-                <button className="timeline-item" key={entry.id} type="button">
+                <button
+                  className={`timeline-item ${
+                    entry.id === selectedTraceEntry?.trace.id ? "selected" : ""
+                  }`}
+                  key={entry.id}
+                  onClick={() => void handleSelectTrace(entry)}
+                  type="button"
+                >
                   <span className={`status-dot ${entry.status}`} />
                   <span>{entry.operation}</span>
-                  <small>{entry.durationMs}ms</small>
+                  <small>
+                    {entry.source === "imported" ? "imported " : ""}
+                    {entry.durationMs}ms
+                  </small>
                 </button>
               ))
             ) : (
@@ -1196,15 +1364,14 @@ export function App() {
                   <h3>Response</h3>
                   <small
                     className={
-                      toolExecution?.response.status === "success"
+                      responseStatus === "success"
                         ? "response-status success"
-                        : toolExecution || toolExecutionError
+                        : responseStatus === "error"
                           ? "response-status error"
                           : "response-status"
                     }
                   >
-                    {toolExecution?.response.status ??
-                      (toolExecutionError ? "error" : "idle")}
+                    {responseStatus}
                   </small>
                 </div>
                 <div className="view-toggle">
@@ -1227,7 +1394,9 @@ export function App() {
               {responsePayload ? (
                 <pre className="response-output">{formatJson(responsePayload)}</pre>
               ) : (
-                <div className="response-empty">Run the tool to see a response here.</div>
+                <div className="response-empty">
+                  Run a tool or select a trace to inspect details here.
+                </div>
               )}
             </section>
           </section>

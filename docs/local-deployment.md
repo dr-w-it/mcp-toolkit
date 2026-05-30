@@ -64,6 +64,12 @@ When default ports are unavailable, copy `.env.example` to `.env` and change
 `INSPECTOR_WEB_PORT` or `INSPECTOR_RUNTIME_PORT`. The web service uses the
 runtime port value to build its browser-visible runtime URL.
 
+For host-native local development, the same values can be set inline:
+
+```sh
+INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 VITE_INSPECTOR_RUNTIME_URL=http://127.0.0.1:18787 ./dev.sh local
+```
+
 ## MCP Transport Considerations
 
 Docker is a good fit for remote MCP servers and containerized local MCP servers.

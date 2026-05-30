@@ -6,12 +6,19 @@ import type {
   CreateConnectionProfileResponse,
   ExecuteToolCallRequest,
   ExecuteToolCallResponse,
+  ExportTraceRequest,
+  ExportTraceResponse,
+  GetTraceResponse,
+  ImportTraceRequest,
+  ImportTraceResponse,
   JsonValue,
   ListConnectionsResponse,
   ListHistoryResponse,
   ReplayToolCallRequest,
   ReplayToolCallResponse,
   RuntimeHealthResponse,
+  TraceArtifact,
+  TraceArtifactEntry,
   ToolCallRequest,
   ToolCallResponse,
   TraceEntry,
@@ -65,6 +72,9 @@ const traces: TraceEntry[] = [
 
 const toolCallRequests = new Map<string, ToolCallRequest>();
 const toolCallResponses = new Map<string, ToolCallResponse>();
+const traceRecords = new Map<string, TraceArtifactEntry>(
+  traces.map((trace) => [trace.id, { trace }]),
+);
 let nextToolCallRequestNumber = 1;
 let nextTraceNumber = traces.length + 1;
 const mcpClient = createMcpClient();
@@ -344,6 +354,149 @@ function closeMcpConnection(connectionId: string) {
   void connection?.close().catch(() => undefined);
 }
 
+function createTraceArtifact(entries: TraceArtifactEntry[]): TraceArtifact {
+  return {
+    entries,
+    exportedAt: new Date().toISOString(),
+    redaction: {
+      excludedConnectionFields: ["headers", "env"],
+      notes: [
+        "Connection profile secrets are not included in trace exports.",
+        "Tool inputs, outputs, and raw MCP protocol payloads are exported as captured and may contain data returned or entered during local debugging.",
+      ],
+    },
+    source: "mcp-inspector",
+    version: 1,
+  };
+}
+
+function getTraceRecord(trace: TraceEntry): TraceArtifactEntry {
+  const existingRecord = traceRecords.get(trace.id);
+
+  if (existingRecord) {
+    return {
+      ...existingRecord,
+      trace,
+    };
+  }
+
+  const request = trace.requestId ? toolCallRequests.get(trace.requestId) : undefined;
+  const response = trace.requestId ? toolCallResponses.get(trace.requestId) : undefined;
+
+  return {
+    request,
+    response,
+    trace,
+  };
+}
+
+function exportTraceEntries(body: Partial<ExportTraceRequest>): TraceArtifactEntry[] {
+  const traceIds = new Set(body.traceIds ?? []);
+  const requestIds = new Set(body.requestIds ?? []);
+  const hasSelection = traceIds.size > 0 || requestIds.size > 0;
+  const selectedTraces = hasSelection
+    ? traces.filter(
+        (trace) =>
+          traceIds.has(trace.id) || (trace.requestId ? requestIds.has(trace.requestId) : false),
+      )
+    : traces;
+
+  return selectedTraces.map(getTraceRecord);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isTraceEntry(value: unknown): value is TraceEntry {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.connectionId === "string" &&
+    typeof value.operation === "string" &&
+    (value.status === "success" || value.status === "error") &&
+    typeof value.startedAt === "string" &&
+    typeof value.durationMs === "number"
+  );
+}
+
+function isTraceArtifactEntry(value: unknown): value is TraceArtifactEntry {
+  return isRecord(value) && isTraceEntry(value.trace);
+}
+
+function isTraceArtifact(value: unknown): value is TraceArtifact {
+  return (
+    isRecord(value) &&
+    value.version === 1 &&
+    value.source === "mcp-inspector" &&
+    typeof value.exportedAt === "string" &&
+    Array.isArray(value.entries) &&
+    value.entries.every(isTraceArtifactEntry)
+  );
+}
+
+function readExportTraceRequest(body: unknown): ExportTraceRequest {
+  if (!isRecord(body)) {
+    throw new Error("request body must be a JSON object");
+  }
+
+  if (body.traceIds !== undefined && !isStringArray(body.traceIds)) {
+    throw new Error("traceIds must be an array of strings");
+  }
+
+  if (body.requestIds !== undefined && !isStringArray(body.requestIds)) {
+    throw new Error("requestIds must be an array of strings");
+  }
+
+  return {
+    requestIds: body.requestIds,
+    traceIds: body.traceIds,
+  };
+}
+
+function readImportTraceRequest(body: unknown): ImportTraceRequest {
+  if (!isRecord(body)) {
+    throw new Error("request body must be a JSON object");
+  }
+
+  if (!isTraceArtifact(body.trace)) {
+    throw new Error("trace must be a valid MCP Inspector trace artifact");
+  }
+
+  return {
+    trace: body.trace,
+  };
+}
+
+function importTraceArtifact(artifact: TraceArtifact): TraceArtifactEntry[] {
+  const importedAt = new Date().toISOString();
+
+  return artifact.entries.map((entry) => {
+    const traceNumber = nextTraceNumber;
+    nextTraceNumber += 1;
+
+    const trace: TraceEntry = {
+      ...entry.trace,
+      id: `imported-trace-${traceNumber.toString().padStart(3, "0")}`,
+      importedAt,
+      source: "imported",
+    };
+    const importedEntry: TraceArtifactEntry = {
+      request: entry.request,
+      response: entry.response,
+      trace,
+    };
+
+    traceRecords.set(trace.id, importedEntry);
+    traces.unshift(trace);
+
+    return importedEntry;
+  });
+}
+
 async function createToolCall(
   connectionId: string,
   toolName: string,
@@ -382,6 +535,11 @@ async function createToolCall(
 
   toolCallRequests.set(request.id, request);
   toolCallResponses.set(request.id, response);
+  traceRecords.set(trace.id, {
+    request,
+    response,
+    trace,
+  });
   traces.unshift(trace);
 
   return {
@@ -634,6 +792,75 @@ const server = createServer(async (request, response) => {
     const body: ListHistoryResponse = { traces };
 
     sendJson(request, response, 200, body);
+    return;
+  }
+
+  const historyMatch = url.pathname.match(/^\/history\/([^/]+)$/);
+
+  if (request.method === "GET" && historyMatch) {
+    const traceId = decodeURIComponent(historyMatch[1] ?? "");
+    const trace = traces.find((item) => item.id === traceId);
+
+    if (!trace) {
+      sendJson(request, response, 404, { error: "Trace not found" });
+      return;
+    }
+
+    const body: GetTraceResponse = getTraceRecord(trace);
+
+    sendJson(request, response, 200, body);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/traces/export") {
+    let body: unknown;
+
+    try {
+      body = await readJsonBody(request);
+    } catch {
+      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      return;
+    }
+
+    try {
+      const exportRequest = readExportTraceRequest(body);
+      const responseBody: ExportTraceResponse = {
+        trace: createTraceArtifact(exportTraceEntries(exportRequest)),
+      };
+
+      sendJson(request, response, 200, responseBody);
+    } catch (error) {
+      sendJson(request, response, 400, {
+        error: error instanceof Error ? error.message : "Invalid trace export request",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/traces/import") {
+    let body: unknown;
+
+    try {
+      body = await readJsonBody(request);
+    } catch {
+      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      return;
+    }
+
+    try {
+      const importRequest = readImportTraceRequest(body);
+      const imported = importTraceArtifact(importRequest.trace);
+      const responseBody: ImportTraceResponse = {
+        imported,
+        traces,
+      };
+
+      sendJson(request, response, 200, responseBody);
+    } catch (error) {
+      sendJson(request, response, 400, {
+        error: error instanceof Error ? error.message : "Invalid trace import request",
+      });
+    }
     return;
   }
 

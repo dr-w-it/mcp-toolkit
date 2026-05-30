@@ -280,6 +280,133 @@ Response type: `ListHistoryResponse`
 History entries are runtime-local traces. A trace can include `requestId` when
 the operation can be replayed.
 
+```http
+GET /history/:traceId
+```
+
+Response type: `GetTraceResponse`
+
+```json
+{
+  "trace": {
+    "id": "trace-002",
+    "connectionId": "local-filesystem",
+    "operation": "tools/call read_file",
+    "status": "success",
+    "startedAt": "2026-05-26T08:41:12.000Z",
+    "durationMs": 118,
+    "requestId": "request-001"
+  },
+  "request": {
+    "id": "request-001",
+    "connectionId": "local-filesystem",
+    "toolName": "read_file",
+    "input": {
+      "path": "./README.md"
+    },
+    "createdAt": "2026-05-26T08:41:12.000Z"
+  },
+  "response": {
+    "requestId": "request-001",
+    "status": "success",
+    "output": {
+      "content": "MCP Toolkit is a developer-focused repository..."
+    },
+    "durationMs": 118,
+    "completedAt": "2026-05-26T08:41:12.118Z"
+  }
+}
+```
+
+Trace detail responses expose captured request/response records when the runtime
+has them. Imported traces can be inspected through the same endpoint without
+requiring the original MCP server to be available.
+
+## Trace Import and Export
+
+```http
+POST /traces/export
+Content-Type: application/json
+```
+
+Request type: `ExportTraceRequest`
+
+```json
+{
+  "traceIds": ["trace-002"]
+}
+```
+
+Response type: `ExportTraceResponse`
+
+```json
+{
+  "trace": {
+    "version": 1,
+    "source": "mcp-inspector",
+    "exportedAt": "2026-05-29T12:00:00.000Z",
+    "redaction": {
+      "excludedConnectionFields": ["headers", "env"],
+      "notes": [
+        "Connection profile secrets are not included in trace exports.",
+        "Tool inputs, outputs, and raw MCP protocol payloads are exported as captured and may contain data returned or entered during local debugging."
+      ]
+    },
+    "entries": [
+      {
+        "trace": {
+          "id": "trace-002",
+          "connectionId": "local-filesystem",
+          "operation": "tools/call read_file",
+          "status": "success",
+          "startedAt": "2026-05-26T08:41:12.000Z",
+          "durationMs": 118,
+          "requestId": "request-001"
+        }
+      }
+    ]
+  }
+}
+```
+
+Omit `traceIds` and `requestIds` to export the full in-memory history. Provide
+`traceIds` or `requestIds` to export selected entries.
+
+```http
+POST /traces/import
+Content-Type: application/json
+```
+
+Request type: `ImportTraceRequest`
+
+```json
+{
+  "trace": {
+    "version": 1,
+    "source": "mcp-inspector",
+    "exportedAt": "2026-05-29T12:00:00.000Z",
+    "redaction": {
+      "excludedConnectionFields": ["headers", "env"],
+      "notes": []
+    },
+    "entries": []
+  }
+}
+```
+
+Response type: `ImportTraceResponse`
+
+```json
+{
+  "imported": [],
+  "traces": []
+}
+```
+
+Imported trace entries are inserted into the runtime history with new
+`imported-trace-*` IDs, `source: "imported"`, and `importedAt` timestamps so the
+timeline can distinguish them from live runtime entries.
+
 ## Replay
 
 ```http

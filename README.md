@@ -96,6 +96,8 @@ Project documentation lives in `docs/`.
 - `docs/architecture.md` describes the intended high-level architecture.
 - `docs/product-decisions.md` records early product decisions.
 - `docs/remote-mcp-transports.md` documents HTTP and SSE runtime transports.
+- `docs/trace-import-export.md` documents the local trace artifact format and
+  import/export workflow.
 - `docs/test-mcp-servers.md` lists MCP servers useful for local Inspector
   testing.
 
@@ -127,13 +129,15 @@ Implemented so far:
   and editing `stdio`, HTTP, and SSE shapes
 - local runtime handling for profile env vars and auth headers without echoing
   secret values in list responses
+- local trace import/export for captured history artifacts
 - Docker Compose local development for the web UI and runtime
 
 Important current limits:
 
 - connection profiles are not persisted across runtime restarts yet
 - history and replay data are in memory only
-- trace import/export and persistence are not implemented yet
+- trace imports are in memory only and exports may include sensitive tool
+  inputs, outputs, or raw MCP payloads entered or returned during debugging
 
 ## Development
 
@@ -224,6 +228,7 @@ or run both host-native services:
 If the default ports are already in use, override them through `.env` or inline:
 
 ```sh
+INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 VITE_INSPECTOR_RUNTIME_URL=http://127.0.0.1:18787 ./dev.sh local
 INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 ./dev.sh docker:up
 ```
 

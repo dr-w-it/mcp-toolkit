@@ -23,7 +23,7 @@ import type {
   ToolDefinition,
   TraceEntry,
 } from "@dr-w/core";
-import { localRuntimeClient } from "./localRuntimeClient";
+import { LocalRuntimeError, localRuntimeClient } from "./localRuntimeClient";
 import { capabilitySummary, connectionProfiles, traceEntries } from "./mockData";
 
 const runtimeBaseUrl = import.meta.env.VITE_INSPECTOR_RUNTIME_URL ?? "http://127.0.0.1:8787";
@@ -62,6 +62,13 @@ interface CapabilityListItem {
   title: string;
 }
 
+interface RuntimeDisplayError {
+  code?: string;
+  details?: string[];
+  message: string;
+  status?: number;
+}
+
 const transportOptions: { label: string; value: ConnectionTransport }[] = [
   { label: "stdio", value: "stdio" },
   { label: "HTTP", value: "http" },
@@ -76,7 +83,27 @@ const capabilityTabs: { id: CapabilityTab; label: string }[] = [
 ];
 
 function getErrorMessage(error: unknown) {
+  if (error instanceof LocalRuntimeError) {
+    const code = error.code ? ` (${error.code})` : "";
+    return `${error.message}${code}`;
+  }
+
   return error instanceof Error ? error.message : "Unable to reach the local runtime";
+}
+
+function getRuntimeDisplayError(error: unknown): RuntimeDisplayError {
+  if (error instanceof LocalRuntimeError) {
+    return {
+      code: error.code,
+      details: error.details,
+      message: error.message,
+      status: error.status,
+    };
+  }
+
+  return {
+    message: getErrorMessage(error),
+  };
 }
 
 function createBlankRow(prefix: string): KeyValueRow {
@@ -245,7 +272,7 @@ export function App() {
   const [toolExecution, setToolExecution] = useState<ExecuteToolCallResponse | null>(
     null,
   );
-  const [toolExecutionError, setToolExecutionError] = useState<string | null>(null);
+  const [toolExecutionError, setToolExecutionError] = useState<RuntimeDisplayError | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isReplayingTool, setIsReplayingTool] = useState(false);
   const [selectedTraceEntry, setSelectedTraceEntry] = useState<TraceArtifactEntry | null>(
@@ -405,6 +432,7 @@ export function App() {
             ? {
                 durationMs: selectedTraceEntry.response.durationMs,
                 error: selectedTraceEntry.response.error,
+                errorCode: selectedTraceEntry.response.errorCode,
                 output: selectedTraceEntry.response.output,
                 requestId: selectedTraceEntry.response.requestId,
                 status: selectedTraceEntry.response.status,
@@ -419,7 +447,10 @@ export function App() {
     runtimeData.source === "runtime" && Boolean(selectedReplayRequestId);
   const responsePayload = toolExecutionError
     ? {
-        error: toolExecutionError,
+        error: toolExecutionError.message,
+        code: toolExecutionError.code,
+        details: toolExecutionError.details,
+        httpStatus: toolExecutionError.status,
         status: "error",
       }
     : toolExecution
@@ -434,6 +465,7 @@ export function App() {
             response: {
               durationMs: toolExecution.response.durationMs,
               error: toolExecution.response.error,
+              errorCode: toolExecution.response.errorCode,
               output: toolExecution.response.output,
               requestId: toolExecution.response.requestId,
               status: toolExecution.response.status,
@@ -803,7 +835,7 @@ export function App() {
         ],
       }));
     } catch (error) {
-      setToolExecutionError(getErrorMessage(error));
+      setToolExecutionError(getRuntimeDisplayError(error));
     } finally {
       setIsExecutingTool(false);
     }
@@ -860,7 +892,7 @@ export function App() {
         ],
       }));
     } catch (error) {
-      setToolExecutionError(getErrorMessage(error));
+      setToolExecutionError(getRuntimeDisplayError(error));
     } finally {
       setIsReplayingTool(false);
     }

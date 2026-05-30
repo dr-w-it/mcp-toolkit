@@ -13,6 +13,8 @@ import type {
   ListHistoryResponse,
   ReplayToolCallRequest,
   ReplayToolCallResponse,
+  RuntimeErrorCode,
+  RuntimeErrorResponse,
   RuntimeHealthResponse,
   UpdateConnectionProfileRequest,
   UpdateConnectionProfileResponse,
@@ -21,6 +23,20 @@ import type {
 export interface LocalRuntimeClientOptions {
   baseUrl?: string;
   fetcher?: typeof fetch;
+}
+
+export class LocalRuntimeError extends Error {
+  readonly code?: RuntimeErrorCode;
+  readonly details?: string[];
+  readonly status: number;
+
+  constructor(message: string, status: number, code?: RuntimeErrorCode, details?: string[]) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    this.name = "LocalRuntimeError";
+    this.status = status;
+  }
 }
 
 export class LocalRuntimeClient {
@@ -125,7 +141,7 @@ export class LocalRuntimeClient {
     });
 
     if (!response.ok) {
-      throw new Error(await getRuntimeErrorMessage(response, `GET ${path}`));
+      throw await createRuntimeError(response, `GET ${path}`);
     }
 
     return (await response.json()) as TResponse;
@@ -147,7 +163,7 @@ export class LocalRuntimeClient {
     });
 
     if (!response.ok) {
-      throw new Error(await getRuntimeErrorMessage(response, `POST ${path}`));
+      throw await createRuntimeError(response, `POST ${path}`);
     }
 
     return (await response.json()) as TResponse;
@@ -169,32 +185,40 @@ export class LocalRuntimeClient {
     });
 
     if (!response.ok) {
-      throw new Error(await getRuntimeErrorMessage(response, `PUT ${path}`));
+      throw await createRuntimeError(response, `PUT ${path}`);
     }
 
     return (await response.json()) as TResponse;
   }
 }
 
-async function getRuntimeErrorMessage(response: Response, requestLabel: string) {
+async function createRuntimeError(response: Response, requestLabel: string) {
   try {
-    const body = (await response.json()) as { details?: unknown; error?: unknown };
+    const body = (await response.json()) as Partial<RuntimeErrorResponse>;
 
     if (typeof body.error === "string" && body.error) {
       if (
         Array.isArray(body.details) &&
         body.details.every((detail) => typeof detail === "string")
       ) {
-        return `${body.error}: ${body.details.join("; ")}`;
+        return new LocalRuntimeError(
+          `${body.error}: ${body.details.join("; ")}`,
+          response.status,
+          body.code,
+          body.details,
+        );
       }
 
-      return body.error;
+      return new LocalRuntimeError(body.error, response.status, body.code);
     }
   } catch {
     // Fall back to the transport-level status below.
   }
 
-  return `Runtime request failed: ${requestLabel} returned ${response.status}`;
+  return new LocalRuntimeError(
+    `Runtime request failed: ${requestLabel} returned ${response.status}`,
+    response.status,
+  );
 }
 
 export const localRuntimeClient = new LocalRuntimeClient({

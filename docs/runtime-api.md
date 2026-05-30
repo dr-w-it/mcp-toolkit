@@ -476,19 +476,54 @@ Response type: `ReplayToolCallResponse`
 }
 ```
 
-Replay starts from a previous request id and returns the original request shape,
-the new response, and the trace created by the replay operation.
+Replay starts from a previous request id, reuses the original tool input exactly,
+executes through the same real runtime tool-call path as a new call, and returns
+the new request, the new response, and the trace created by the replay
+operation. Replayed calls preserve captured raw JSON-RPC request/response data
+when the selected transport exposes it to the runtime.
 
 ## Error Shape
 
-Runtime endpoints should return this minimal error shape until richer domain
-errors are needed:
+Runtime endpoints return a JSON error body with a stable human-readable
+`error`. Newer endpoints also include a machine-readable `code`; clients should
+keep treating `error` as the compatibility field.
 
 ```json
 {
-  "error": "Replayable request not found"
+  "error": "Replayable request not found",
+  "code": "replay_request_not_found"
 }
 ```
 
-Use appropriate HTTP status codes for transport-level failures such as invalid
-JSON, missing records, or unsupported endpoints.
+Validation errors may include string `details`:
+
+```json
+{
+  "error": "Invalid connection profile",
+  "code": "invalid_connection_profile",
+  "details": ["command is required for stdio profiles"]
+}
+```
+
+Tool call responses and traces may include `errorCode` when a real MCP call
+returns an error result or fails during execution:
+
+```json
+{
+  "response": {
+    "requestId": "request-004",
+    "status": "error",
+    "error": "MCP tool returned an error result",
+    "errorCode": "mcp_tool_result_error",
+    "durationMs": 14,
+    "completedAt": "2026-05-30T12:00:00.014Z"
+  }
+}
+```
+
+Known runtime error codes include `invalid_json`, `connection_not_found`,
+`tool_not_found`, `replay_request_not_found`, `mcp_startup_failed`,
+`mcp_connection_closed`, `timeout`, `schema_validation_failed`,
+`mcp_transport_failed`, `invalid_tool_input`, and `unknown_runtime_error`. Use
+appropriate HTTP status codes for transport-level failures such as invalid JSON,
+missing records, or unsupported endpoints.

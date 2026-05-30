@@ -11,11 +11,14 @@ import type {
   GetTraceResponse,
   ImportTraceRequest,
   ImportTraceResponse,
+  JsonObject,
   JsonValue,
   ListConnectionsResponse,
   ListHistoryResponse,
   ReplayToolCallRequest,
   ReplayToolCallResponse,
+  RuntimeErrorCode,
+  RuntimeErrorResponse,
   RuntimeHealthResponse,
   TraceArtifact,
   TraceArtifactEntry,
@@ -92,6 +95,20 @@ class ConnectionProfileValidationError extends Error {
   }
 }
 
+class RuntimeRequestError extends Error {
+  readonly code: RuntimeErrorCode;
+  readonly details?: string[];
+  readonly status: number;
+
+  constructor(status: number, code: RuntimeErrorCode, message: string, details?: string[]) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    this.name = "RuntimeRequestError";
+    this.status = status;
+  }
+}
+
 function getAllowedOrigin(request: IncomingMessage) {
   const origin = request.headers.origin;
 
@@ -111,6 +128,29 @@ function sendJson(request: IncomingMessage, response: ServerResponse, status: nu
     Vary: "Origin",
   });
   response.end(JSON.stringify(body, null, 2));
+}
+
+function createRuntimeErrorBody(
+  code: RuntimeErrorCode,
+  message: string,
+  details?: string[],
+): RuntimeErrorResponse {
+  return {
+    code,
+    details,
+    error: message,
+  };
+}
+
+function sendRuntimeError(
+  request: IncomingMessage,
+  response: ServerResponse,
+  status: number,
+  code: RuntimeErrorCode,
+  message: string,
+  details?: string[],
+) {
+  sendJson(request, response, status, createRuntimeErrorBody(code, message, details));
 }
 
 function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -458,6 +498,22 @@ function readImportTraceRequest(body: unknown): ImportTraceRequest {
   };
 }
 
+function readExecuteToolCallRequest(body: unknown): ExecuteToolCallRequest {
+  if (!isRecord(body)) {
+    throw new RuntimeRequestError(400, "invalid_tool_input", "Tool input request must be a JSON object");
+  }
+
+  if (body.input === undefined) {
+    return { input: {} };
+  }
+
+  if (!isRecord(body.input)) {
+    throw new RuntimeRequestError(400, "invalid_tool_input", "Tool input must be a JSON object");
+  }
+
+  return { input: body.input as JsonObject };
+}
+
 function importTraceArtifact(artifact: TraceArtifact): TraceArtifactEntry[] {
   const importedAt = new Date().toISOString();
 
@@ -573,7 +629,7 @@ async function createToolCall(
   const connection = connectionProfiles.find((item) => item.id === connectionId);
 
   if (!connection) {
-    throw new Error("Connection not found");
+    throw new RuntimeRequestError(404, "connection_not_found", "Connection not found");
   }
 
   const mcpConnection = await getMcpConnection(connection);
@@ -589,6 +645,7 @@ async function createToolCall(
     durationMs: response.durationMs,
     requestId: request.id,
     error: response.error,
+    errorCode: response.errorCode,
   };
 
   toolCallRequests.set(request.id, request);
@@ -608,39 +665,70 @@ async function createToolCall(
 }
 
 function getRuntimeError(error: unknown) {
+  if (error instanceof RuntimeRequestError) {
+    return {
+      body: createRuntimeErrorBody(error.code, error.message, error.details),
+      status: error.status,
+    };
+  }
+
   if (error instanceof UnsupportedMcpTransportError) {
-    return { status: 400, message: error.message };
+    return {
+      body: createRuntimeErrorBody("unsupported_transport", error.message),
+      status: 400,
+    };
   }
 
   if (error instanceof InvalidMcpCommandError) {
-    return { status: 400, message: error.message };
+    return {
+      body: createRuntimeErrorBody("invalid_mcp_command", error.message),
+      status: 400,
+    };
   }
 
   if (error instanceof InvalidMcpUrlError) {
-    return { status: 400, message: error.message };
+    return {
+      body: createRuntimeErrorBody("invalid_mcp_url", error.message),
+      status: 400,
+    };
   }
 
   if (error instanceof McpConnectionStartupError) {
-    return { status: 502, message: `MCP server startup failed: ${error.message}` };
+    return {
+      body: createRuntimeErrorBody(
+        "mcp_startup_failed",
+        `MCP server startup failed: ${error.message}`,
+      ),
+      status: 502,
+    };
   }
 
   if (error instanceof McpConnectionClosedError) {
-    return { status: 502, message: error.message };
+    return {
+      body: createRuntimeErrorBody("mcp_connection_closed", error.message),
+      status: 502,
+    };
   }
 
   if (error instanceof Error && /timeout/i.test(error.message)) {
-    return { status: 504, message: error.message };
+    return {
+      body: createRuntimeErrorBody("timeout", error.message),
+      status: 504,
+    };
   }
 
   return {
+    body: createRuntimeErrorBody(
+      "unknown_runtime_error",
+      error instanceof Error ? error.message : "Runtime request failed",
+    ),
     status: 500,
-    message: error instanceof Error ? error.message : "Runtime request failed",
   };
 }
 
 const server = createServer(async (request, response) => {
   if (!request.url) {
-    sendJson(request, response, 400, { error: "Missing request URL" });
+    sendRuntimeError(request, response, 400, "unknown_runtime_error", "Missing request URL");
     return;
   }
 
@@ -677,7 +765,7 @@ const server = createServer(async (request, response) => {
     try {
       body = await readJsonBody(request);
     } catch {
-      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
       return;
     }
 
@@ -693,6 +781,7 @@ const server = createServer(async (request, response) => {
     } catch (error) {
       if (error instanceof ConnectionProfileValidationError) {
         sendJson(request, response, 400, {
+          code: "invalid_connection_profile",
           details: error.details,
           error: error.message,
         });
@@ -700,7 +789,7 @@ const server = createServer(async (request, response) => {
       }
 
       const runtimeError = getRuntimeError(error);
-      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+      sendJson(request, response, runtimeError.status, runtimeError.body);
     }
     return;
   }
@@ -712,7 +801,7 @@ const server = createServer(async (request, response) => {
     const profileIndex = connectionProfiles.findIndex((item) => item.id === connectionId);
 
     if (profileIndex < 0) {
-      sendJson(request, response, 404, { error: "Connection not found" });
+      sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
       return;
     }
 
@@ -721,7 +810,7 @@ const server = createServer(async (request, response) => {
     try {
       body = await readJsonBody(request);
     } catch {
-      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
       return;
     }
 
@@ -741,6 +830,7 @@ const server = createServer(async (request, response) => {
     } catch (error) {
       if (error instanceof ConnectionProfileValidationError) {
         sendJson(request, response, 400, {
+          code: "invalid_connection_profile",
           details: error.details,
           error: error.message,
         });
@@ -748,7 +838,7 @@ const server = createServer(async (request, response) => {
       }
 
       const runtimeError = getRuntimeError(error);
-      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+      sendJson(request, response, runtimeError.status, runtimeError.body);
     }
     return;
   }
@@ -760,7 +850,7 @@ const server = createServer(async (request, response) => {
     const connection = connectionProfiles.find((item) => item.id === connectionId);
 
     if (!connection) {
-      sendJson(request, response, 404, { error: "Connection not found" });
+      sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
       return;
     }
 
@@ -775,7 +865,7 @@ const server = createServer(async (request, response) => {
       }
 
       const runtimeError = getRuntimeError(error);
-      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+      sendJson(request, response, runtimeError.status, runtimeError.body);
     }
     return;
   }
@@ -790,7 +880,7 @@ const server = createServer(async (request, response) => {
     const connection = connectionProfiles.find((item) => item.id === connectionId);
 
     if (!connection) {
-      sendJson(request, response, 404, { error: "Connection not found" });
+      sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
       return;
     }
 
@@ -806,14 +896,14 @@ const server = createServer(async (request, response) => {
       }
 
       const runtimeError = getRuntimeError(error);
-      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+      sendJson(request, response, runtimeError.status, runtimeError.body);
       return;
     }
 
     const tool = discoveredTools.find((item) => item.name === toolName);
 
     if (!tool) {
-      sendJson(request, response, 404, { error: "Tool not found" });
+      sendRuntimeError(request, response, 404, "tool_not_found", "Tool not found");
       return;
     }
 
@@ -822,16 +912,16 @@ const server = createServer(async (request, response) => {
     try {
       body = await readJsonBody(request);
     } catch {
-      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
       return;
     }
 
     try {
-      const toolCallRequest = body as Partial<ExecuteToolCallRequest>;
+      const toolCallRequest = readExecuteToolCallRequest(body);
       const toolCallResponse = await createToolCall(
         connection.id,
         tool.name,
-        toolCallRequest.input ?? {},
+        toolCallRequest.input,
       );
       await persistHistory();
 
@@ -842,7 +932,7 @@ const server = createServer(async (request, response) => {
       }
 
       const runtimeError = getRuntimeError(error);
-      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+      sendJson(request, response, runtimeError.status, runtimeError.body);
     }
     return;
   }
@@ -861,7 +951,7 @@ const server = createServer(async (request, response) => {
     const trace = traces.find((item) => item.id === traceId);
 
     if (!trace) {
-      sendJson(request, response, 404, { error: "Trace not found" });
+      sendRuntimeError(request, response, 404, "trace_not_found", "Trace not found");
       return;
     }
 
@@ -877,7 +967,7 @@ const server = createServer(async (request, response) => {
     try {
       body = await readJsonBody(request);
     } catch {
-      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
       return;
     }
 
@@ -902,7 +992,7 @@ const server = createServer(async (request, response) => {
     try {
       body = await readJsonBody(request);
     } catch {
-      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
       return;
     }
 
@@ -930,14 +1020,20 @@ const server = createServer(async (request, response) => {
     try {
       body = await readJsonBody(request);
     } catch {
-      sendJson(request, response, 400, { error: "Invalid JSON request body" });
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
       return;
     }
 
     const replayRequest = body as Partial<ReplayToolCallRequest>;
 
     if (!replayRequest.requestId || !toolCallRequests.has(replayRequest.requestId)) {
-      sendJson(request, response, 404, { error: "Replayable request not found" });
+      sendRuntimeError(
+        request,
+        response,
+        404,
+        "replay_request_not_found",
+        "Replayable request not found",
+      );
       return;
     }
 
@@ -945,7 +1041,13 @@ const server = createServer(async (request, response) => {
     const originalResponse = toolCallResponses.get(replayRequest.requestId);
 
     if (!originalRequest || !originalResponse) {
-      sendJson(request, response, 404, { error: "Replayable request not found" });
+      sendRuntimeError(
+        request,
+        response,
+        404,
+        "replay_request_not_found",
+        "Replayable request not found",
+      );
       return;
     }
 
@@ -984,12 +1086,12 @@ const server = createServer(async (request, response) => {
       }
 
       const runtimeError = getRuntimeError(error);
-      sendJson(request, response, runtimeError.status, { error: runtimeError.message });
+      sendJson(request, response, runtimeError.status, runtimeError.body);
     }
     return;
   }
 
-  sendJson(request, response, 404, { error: "Not found" });
+  sendRuntimeError(request, response, 404, "unknown_runtime_error", "Not found");
 });
 
 await loadPersistedHistory();

@@ -78,6 +78,7 @@ export interface ToolCallResponse {
   status: "success" | "error";
   output?: JsonValue;
   error?: string;
+  errorCode?: RuntimeErrorCode;
   rawRequest?: JsonValue;
   rawResponse?: JsonValue;
   durationMs: number;
@@ -103,6 +104,7 @@ export interface TraceEntry {
   durationMs: number;
   requestId?: string;
   error?: string;
+  errorCode?: RuntimeErrorCode;
   source?: "live" | "imported";
   importedAt?: string;
   replayedFromRequestId?: string;
@@ -172,6 +174,31 @@ export interface ReplayToolCallResponse {
   request: ToolCallRequest;
   response: ToolCallResponse;
   trace: TraceEntry;
+}
+
+export type RuntimeErrorCode =
+  | "connection_not_found"
+  | "invalid_connection_profile"
+  | "invalid_json"
+  | "invalid_mcp_command"
+  | "invalid_mcp_url"
+  | "invalid_tool_input"
+  | "mcp_connection_closed"
+  | "mcp_startup_failed"
+  | "mcp_tool_result_error"
+  | "mcp_transport_failed"
+  | "replay_request_not_found"
+  | "schema_validation_failed"
+  | "timeout"
+  | "tool_not_found"
+  | "trace_not_found"
+  | "unsupported_transport"
+  | "unknown_runtime_error";
+
+export interface RuntimeErrorResponse {
+  error: string;
+  code: RuntimeErrorCode;
+  details?: string[];
 }
 
 export type JsonPrimitive = string | number | boolean | null;

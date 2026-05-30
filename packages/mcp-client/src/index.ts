@@ -5,6 +5,7 @@ import type {
   JsonValue,
   PromptDefinition,
   ResourceDefinition,
+  RuntimeErrorCode,
   ToolCallResponse,
   ToolDefinition,
 } from "@dr-w/core";
@@ -220,6 +221,7 @@ class DefaultMcpConnection implements McpConnection {
       return {
         completedAt: completedAt.toISOString(),
         durationMs,
+        errorCode: isError ? "mcp_tool_result_error" : undefined,
         error: isError ? "MCP tool returned an error result" : undefined,
         output,
         rawRequest: exchange.rawRequest,
@@ -236,6 +238,7 @@ class DefaultMcpConnection implements McpConnection {
       return {
         completedAt: completedAt.toISOString(),
         durationMs,
+        errorCode: classifyToolCallError(error),
         error: message,
         rawRequest: exchange.rawRequest,
         rawResponse: exchange.rawResponse,
@@ -372,6 +375,28 @@ function createRemoteRequestInit(profile: ConnectionProfile): RequestInit {
         headers: profile.headers,
       }
     : {};
+}
+
+function classifyToolCallError(error: unknown): RuntimeErrorCode {
+  if (error instanceof McpConnectionClosedError) {
+    return "mcp_connection_closed";
+  }
+
+  const message = error instanceof Error ? error.message : "";
+
+  if (/timeout/i.test(message)) {
+    return "timeout";
+  }
+
+  if (/schema|validation|invalid argument|invalid params/i.test(message)) {
+    return "schema_validation_failed";
+  }
+
+  if (/fetch failed|network|econnrefused|enotfound|socket|transport/i.test(message)) {
+    return "mcp_transport_failed";
+  }
+
+  return "unknown_runtime_error";
 }
 
 function splitCommand(command: string): string[] {

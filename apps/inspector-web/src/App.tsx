@@ -233,6 +233,7 @@ export function App() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(
     connectionProfiles[0]?.id ?? null,
   );
+  const selectedConnectionIdRef = useRef(selectedConnectionId);
   const [runtimeData, setRuntimeData] = useState<RuntimeData>({
     capabilities: capabilitySummary,
     connections: connectionProfiles,
@@ -478,6 +479,11 @@ export function App() {
     selectedTraceEntry?.trace.status ??
     (toolExecutionError ? "error" : "idle");
 
+  const selectConnectionId = useCallback((connectionId: string | null) => {
+    selectedConnectionIdRef.current = connectionId;
+    setSelectedConnectionId(connectionId);
+  }, []);
+
   const loadRuntimeData = useCallback(
     async (signal?: AbortSignal) => {
       setRuntimeData((currentData) => ({
@@ -493,18 +499,18 @@ export function App() {
           localRuntimeClient.listHistory(signal),
         ]);
         const nextConnections = connectionsResponse.connections;
-        const nextSelectedConnectionId = nextConnections[0]?.id ?? null;
+        const preferredConnectionId = selectedConnectionIdRef.current;
+        const nextSelectedConnectionId =
+          preferredConnectionId &&
+          nextConnections.some((connection) => connection.id === preferredConnectionId)
+            ? preferredConnectionId
+            : nextConnections[0]?.id ?? null;
         const capabilities = nextSelectedConnectionId
           ? await localRuntimeClient.getCapabilities(nextSelectedConnectionId, signal)
           : createEmptyCapabilitySummary("runtime");
 
         setDraftConnections([]);
-        setSelectedConnectionId((currentId) =>
-          currentId &&
-          nextConnections.some((connection) => connection.id === currentId)
-            ? currentId
-            : nextSelectedConnectionId,
-        );
+        selectConnectionId(nextSelectedConnectionId);
         setRuntimeData({
           capabilities,
           connections: nextConnections,
@@ -528,16 +534,18 @@ export function App() {
           source: "mock",
           traces: traceEntries,
         });
-        setSelectedConnectionId((currentId) =>
-          currentId &&
-          (currentId.startsWith("draft-") ||
-            connectionProfiles.some((connection) => connection.id === currentId))
-            ? currentId
-            : connectionProfiles[0]?.id ?? null,
-        );
+        const preferredConnectionId = selectedConnectionIdRef.current;
+        const nextSelectedConnectionId =
+          preferredConnectionId &&
+          (preferredConnectionId.startsWith("draft-") ||
+            connectionProfiles.some((connection) => connection.id === preferredConnectionId))
+            ? preferredConnectionId
+            : connectionProfiles[0]?.id ?? null;
+
+        selectConnectionId(nextSelectedConnectionId);
       }
     },
-    [],
+    [selectConnectionId],
   );
 
   useEffect(() => {
@@ -678,7 +686,7 @@ export function App() {
             profileRequest,
           );
 
-          setSelectedConnectionId(updatedProfile.connection.id);
+          selectConnectionId(updatedProfile.connection.id);
           setRuntimeData((currentData) => ({
             ...currentData,
             capabilities: createEmptyCapabilitySummary(updatedProfile.connection.id),
@@ -713,7 +721,7 @@ export function App() {
           connection.id === updatedDraft.id ? updatedDraft : connection,
         ),
       );
-      setSelectedConnectionId(updatedDraft.id);
+      selectConnectionId(updatedDraft.id);
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities: createEmptyCapabilitySummary(updatedDraft.id),
@@ -729,7 +737,7 @@ export function App() {
         const createdProfile = await localRuntimeClient.createConnection(profileRequest);
 
         setDraftConnections([]);
-        setSelectedConnectionId(createdProfile.connection.id);
+        selectConnectionId(createdProfile.connection.id);
         setRuntimeData((currentData) => ({
           ...currentData,
           capabilities: createEmptyCapabilitySummary(createdProfile.connection.id),
@@ -763,7 +771,7 @@ export function App() {
     };
 
     setDraftConnections((currentConnections) => [profile, ...currentConnections]);
-    setSelectedConnectionId(profile.id);
+    selectConnectionId(profile.id);
     setRuntimeData((currentData) => ({
       ...currentData,
       capabilities: createEmptyCapabilitySummary(profile.id),
@@ -772,7 +780,7 @@ export function App() {
   }
 
   async function handleSelectConnection(connectionId: string) {
-    setSelectedConnectionId(connectionId);
+    selectConnectionId(connectionId);
     setCapabilityFilter("");
 
     if (connectionId.startsWith("draft-")) {

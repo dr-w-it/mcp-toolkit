@@ -60,6 +60,22 @@ transport needs them. Local mode should keep these values local to the runtime.
 List responses omit `headers` and `env` values so secrets are not echoed back to
 the browser after profile creation.
 
+Connection profile metadata is persisted locally by default so profile ids stay
+stable across Inspector Runtime restarts. The default storage file is
+`.mcp-inspector/connections.json`; set `INSPECTOR_CONNECTIONS_PATH` before
+starting the runtime to use a different JSON file path:
+
+```sh
+INSPECTOR_CONNECTIONS_PATH=.mcp-inspector/connections.json ./dev.sh local
+```
+
+The runtime stores profile ids, names, transports, commands, args, URLs, and
+timestamps. It does not store stdio `env` values or HTTP/SSE `headers`, so
+profiles that require those secret values need them re-entered after a runtime
+restart. The built-in `local-filesystem` development profile is added by the
+runtime and is not written to the profile file. To reset persisted profiles,
+stop the runtime and delete the configured connection profile file.
+
 ```http
 POST /connections
 Content-Type: application/json

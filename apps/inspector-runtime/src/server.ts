@@ -36,11 +36,15 @@ import {
   UnsupportedMcpTransportError,
   type McpConnection,
 } from "@dr-w/mcp-client";
+import { createConnectionProfileStore } from "./connectionProfileStore.js";
 import { createHistoryStore, isTraceArtifactEntry } from "./historyStore.js";
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
 const webPort = process.env["INSPECTOR_WEB_PORT"] ?? "5000";
+const connectionProfileStore = createConnectionProfileStore(
+  process.env["INSPECTOR_CONNECTIONS_PATH"] ?? ".mcp-inspector/connections.json",
+);
 const historyStore = createHistoryStore(process.env["INSPECTOR_HISTORY_PATH"]);
 const allowedWebOrigins = new Set(
   (
@@ -52,7 +56,7 @@ const allowedWebOrigins = new Set(
     .filter(Boolean),
 );
 
-const connectionProfiles: ConnectionProfile[] = [
+const builtInConnectionProfiles: ConnectionProfile[] = [
   {
     id: "local-filesystem",
     name: "Local filesystem server",
@@ -63,6 +67,10 @@ const connectionProfiles: ConnectionProfile[] = [
     updatedAt: new Date().toISOString(),
   },
 ];
+const builtInConnectionProfileIds = new Set(
+  builtInConnectionProfiles.map((profile) => profile.id),
+);
+const connectionProfiles: ConnectionProfile[] = [...builtInConnectionProfiles];
 
 const traces: TraceEntry[] = [
   {
@@ -394,6 +402,47 @@ function closeMcpConnection(connectionId: string) {
   const connection = mcpConnections.get(connectionId);
   mcpConnections.delete(connectionId);
   void connection?.close().catch(() => undefined);
+}
+
+function hydrateConnectionProfiles(persistedProfiles: ConnectionProfile[]) {
+  const uniquePersistedProfiles: ConnectionProfile[] = [];
+  const persistedProfileIds = new Set<string>();
+
+  for (const profile of persistedProfiles) {
+    if (persistedProfileIds.has(profile.id) || builtInConnectionProfileIds.has(profile.id)) {
+      continue;
+    }
+
+    uniquePersistedProfiles.push(profile);
+    persistedProfileIds.add(profile.id);
+  }
+
+  const missingBuiltInProfiles = builtInConnectionProfiles.filter(
+    (profile) => !persistedProfileIds.has(profile.id),
+  );
+
+  connectionProfiles.splice(
+    0,
+    connectionProfiles.length,
+    ...uniquePersistedProfiles,
+    ...missingBuiltInProfiles,
+  );
+}
+
+async function loadPersistedConnectionProfiles() {
+  const profiles = await connectionProfileStore.load();
+
+  if (profiles.length === 0) {
+    return;
+  }
+
+  hydrateConnectionProfiles(profiles);
+}
+
+async function persistConnectionProfiles() {
+  await connectionProfileStore.save(
+    connectionProfiles.filter((profile) => !builtInConnectionProfileIds.has(profile.id)),
+  );
 }
 
 function createTraceArtifact(entries: TraceArtifactEntry[]): TraceArtifact {
@@ -773,6 +822,13 @@ const server = createServer(async (request, response) => {
       const profile = validateConnectionProfileRequest(body);
       connectionProfiles.unshift(profile);
 
+      try {
+        await persistConnectionProfiles();
+      } catch (error) {
+        connectionProfiles.shift();
+        throw error;
+      }
+
       const responseBody: CreateConnectionProfileResponse = {
         connection: toPublicConnectionProfile(profile),
       };
@@ -815,11 +871,25 @@ const server = createServer(async (request, response) => {
     }
 
     try {
+      const existingProfile = connectionProfiles[profileIndex];
+      if (!existingProfile) {
+        sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
+        return;
+      }
+
       const profile = validateConnectionProfileRequest(
         body,
-        connectionProfiles[profileIndex],
+        existingProfile,
       );
       connectionProfiles[profileIndex] = profile;
+
+      try {
+        await persistConnectionProfiles();
+      } catch (error) {
+        connectionProfiles[profileIndex] = existingProfile;
+        throw error;
+      }
+
       closeMcpConnection(profile.id);
 
       const responseBody: UpdateConnectionProfileResponse = {
@@ -1094,10 +1164,14 @@ const server = createServer(async (request, response) => {
   sendRuntimeError(request, response, 404, "unknown_runtime_error", "Not found");
 });
 
+await loadPersistedConnectionProfiles();
 await loadPersistedHistory();
 
 server.listen(port, host, () => {
   console.log(`Inspector Runtime listening on http://${host}:${port}`);
+  console.log(
+    `Inspector Runtime connection profile persistence: ${connectionProfileStore.storagePath}`,
+  );
   if (historyStore.storagePath) {
     console.log(`Inspector Runtime history persistence: ${historyStore.storagePath}`);
   }

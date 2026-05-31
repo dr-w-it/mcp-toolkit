@@ -125,8 +125,8 @@ Implemented so far:
 - a structured JSON tool request editor and formatted/raw response viewer
 - runtime status handling with fallback development data when the local runtime
   is unavailable
-- runtime-backed in-memory connection profiles for creating, listing, selecting,
-  and editing `stdio`, HTTP, and SSE shapes
+- runtime-backed persisted connection profiles for creating, listing,
+  selecting, and editing `stdio`, HTTP, and SSE shapes
 - local runtime handling for profile env vars and auth headers without echoing
   secret values in list responses
 - optional file-backed local request history and replay records
@@ -135,7 +135,8 @@ Implemented so far:
 
 Important current limits:
 
-- connection profiles are not persisted across runtime restarts yet
+- connection profile persistence stores local metadata only and does not store
+  profile env vars or auth headers
 - history and replay persistence is opt-in through `INSPECTOR_HISTORY_PATH`
 - trace exports and persisted history may include sensitive tool inputs,
   outputs, or raw MCP payloads entered or returned during debugging
@@ -194,6 +195,13 @@ The file stores trace entries plus captured request and response records. It
 does not store connection profile `env` values or HTTP/SSE `headers`. To reset
 persisted history, stop the runtime and delete the configured JSON file, or
 unset `INSPECTOR_HISTORY_PATH` to return to process-only history.
+
+Connection profile metadata persists by default in
+`.mcp-inspector/connections.json`. Set `INSPECTOR_CONNECTIONS_PATH` to use a
+different local JSON file. The file stores profile ids, names, transports,
+commands, args, URLs, and timestamps, but it does not store stdio `env` values
+or HTTP/SSE `headers`. To reset persisted profiles, stop the runtime and delete
+the configured profile file.
 
 ### Docker Compose
 

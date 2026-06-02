@@ -1,7 +1,7 @@
 # Vision
 
-MCP Toolkit aims to become a practical, open-source toolkit for developers
-building with the MCP ecosystem.
+MCP Toolkit aims to become a practical, open-source, local-first workbench for
+developers building with the MCP ecosystem.
 
 MCP Toolkit lives under **dr-w**, a personal engineering and devtools lab rooted
 in the `wahrheit` / `dr-wahrheit` identity. The brand should feel authentic,
@@ -10,15 +10,16 @@ friendly.
 
 The goal is not to build another chatbot platform, prompt playground, low-code
 AI builder, agent marketplace, or hype-driven AI wrapper. The goal is to build
-useful developer infrastructure for understanding, debugging, securing, and
-eventually operating MCP servers and agent workflows in production.
+useful developer infrastructure for understanding, debugging, replaying,
+securing, and eventually operating MCP servers and agent workflows in
+production.
 
 MCP Toolkit should feel closer to:
 
-- Postman for MCP
-- DevTools for MCP
-- debugging and inspection tooling for MCP
-- security visibility tooling for MCP
+- a local MCP workbench
+- repeatable request and replay tooling for MCP
+- trace and audit tooling for MCP interactions
+- security review tooling for MCP
 - eventually, Cloudflare/Auth0-style infrastructure for MCP access,
   governance, and trust
 
@@ -27,14 +28,18 @@ Kubernetes-first platforms, enterprise governance suites, or deployment
 infrastructure. Those may be adjacent future areas, but the starting point is
 developer tooling.
 
-## First Product
+## Initial Product Direction
 
-The first product is **MCP Inspector**.
+The initial product direction is **MCP Toolkit / MCP Workbench**.
 
-MCP Inspector should become a reliable developer tool for working with MCP
+MCP Toolkit should become a reliable developer tool for working with MCP
 servers locally through a web-first interface. The product may later have a
 hosted SaaS version, but SaaS is optional, not required for the product to be
 useful.
+
+Names like MCP Workbench, MCP Security Workbench, and MCP Replay / Trace tooling
+fit the intended direction. "MCP Inspector" should not be the main public
+product name unless it is clearly framed as a local/internal inspection module.
 
 The first phase is about adoption, trust, developer mindshare, and learning
 real-world MCP pain points, not monetization.
@@ -43,8 +48,10 @@ real-world MCP pain points, not monetization.
 
 The long-term direction may include:
 
-- inspection tools for MCP servers
+- inspection capabilities for MCP servers
 - debugging workflows for requests and responses
+- saved requests and repeatable replay workflows
+- trace timelines, trace diffing, and local audit artifacts
 - security insights for risky tool exposure
 - auth helpers for common MCP deployments
 - gateway capabilities for controlled access
@@ -54,7 +61,8 @@ The long-term direction may include:
 These are future directions, not initial scope.
 
 Security is a differentiator, but the initial product positioning should remain
-inspection and debugging first.
+debugging, replay, traceability, and security review rather than generic
+inspection.
 
 ## Initial Focus
 
@@ -65,9 +73,11 @@ The MVP should make it easy to:
 - connect to an MCP server
 - inspect exposed capabilities
 - call tools
+- save requests
 - replay requests
+- review local traces and security signals
 
-The MCP Inspector MVP should focus on:
+The MCP Workbench MVP should focus on:
 
 - connection management for local/stdin and remote MCP servers
 - saved or recent connections
@@ -75,7 +85,10 @@ The MCP Inspector MVP should focus on:
 - inspection of tools, resources, prompts, schemas, and capabilities
 - structured tool execution
 - response viewing with formatted JSON and raw request/response details
-- replay, request history, timelines, diffing, and import/export traces
+- saved requests, replay, request history, timelines, diffing, and
+  import/export traces
+- secret redaction, risky tool detection, trace export sanitization, and local
+  audit reports
 
 ## Security Direction
 

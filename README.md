@@ -1,13 +1,14 @@
 # MCP Toolkit
 
-MCP Toolkit is a developer-focused repository for tools in the Model Context Protocol
-(MCP) ecosystem.
+MCP Toolkit is a local-first MCP workbench for debugging, replaying, and
+securing Model Context Protocol (MCP) server interactions.
 
 MCP Toolkit lives under **dr-w**, a personal engineering and devtools lab for
 open-source, developer-first infrastructure experiments.
 
-The first product is **MCP Inspector**, an open-source tool for inspecting,
-debugging, and eventually securing MCP servers.
+The initial product direction is **MCP Toolkit / MCP Workbench**: open-source
+local tooling for repeatable MCP debugging, saved requests, local traces,
+replay, security review, and production-readiness checks.
 
 The long-term goal is not to build another AI wrapper, chatbot platform, or
 prompt playground. MCP Toolkit aims to become foundational developer
@@ -21,35 +22,67 @@ needs them.
 
 Think:
 
-- Postman for MCP
-- DevTools for MCP
+- local MCP workbench
+- repeatable request and replay tooling for MCP
+- trace and audit tooling for MCP server interactions
 - developer-first MCP utilities
-- eventually, infrastructure for MCP authentication, governance, and
-  observability
+- eventually, infrastructure for MCP authentication, governance,
+  production-readiness, and observability
 
 ## Product Focus
 
-### MCP Inspector
+### MCP Workbench
 
-MCP Inspector is intended to help developers:
+MCP Toolkit is intended to help developers:
 
 - connect to MCP servers
 - inspect tools, resources, and prompts
 - call tools during development
+- save useful requests
 - replay previous requests
 - debug server behavior
+- review security and production-readiness risks
 
-The first milestone should stay narrow: **connect, inspect, call, replay**.
+The first milestone should stay narrow: **connect, inspect, call, save,
+replay, review**.
 
-Initial MCP Inspector capabilities may include:
+Initial MCP Workbench capabilities may include:
 
 - local/stdin and remote server connections
 - recent connection management
 - environment variable and auth header support
 - tool, resource, prompt, schema, and capability inspection
 - structured tool execution
+- saved requests
 - formatted and raw request/response views
-- request history, replay, timeline, and trace import/export
+- request history, replay, trace timeline, and trace import/export
+- trace diff and response comparison
+- security review panel
+- secret redaction
+- risky tool detection
+- sanitized trace export
+- local audit report
+
+The `inspector-web` and `inspector-runtime` package names are retained as local
+module names for now. They should not define the public product positioning.
+
+## Why not just use the official MCP Inspector?
+
+The official MCP Inspector is the default and recommended visual testing tool
+for MCP servers. It is the right starting point for general MCP server
+inspection and can be run with:
+
+```sh
+npx @modelcontextprotocol/inspector
+```
+
+MCP Toolkit is intended to be complementary, not a replacement. The project is
+focused on repeatable workflows, saved requests, local traces, replay, security
+review, and production-readiness.
+
+The goal is not to win on generic inspection. The goal is to provide deeper
+local debugging and security-oriented workflows for developers who need
+auditability, trace comparison, sanitized exports, and local review artifacts.
 
 ## Repository Structure
 
@@ -73,11 +106,11 @@ Applications live in `apps/`.
   web UI inspect local and private MCP servers. The first runtime implementation
   should use TypeScript and Node.js.
 
-MCP Inspector should be web-first, not necessarily cloud-first. Developers
-should be able to run it locally from the open-source repository. A SaaS version
-may exist later, but the product should not require SaaS to be useful.
+MCP Toolkit should be web-first, not necessarily cloud-first. Developers should
+be able to run it locally from the open-source repository. A SaaS version may
+exist later, but the product should not require SaaS to be useful.
 
-The same `inspector-web` product UI should support local and possible future
+The same `inspector-web` workbench UI should support local and possible future
 hosted modes by changing the runtime/API target, not by forking the frontend.
 Local usage should not require accounts or hosted authentication.
 
@@ -98,7 +131,7 @@ Project documentation lives in `docs/`.
 - `docs/remote-mcp-transports.md` documents HTTP and SSE runtime transports.
 - `docs/trace-import-export.md` documents the local trace artifact format and
   import/export workflow.
-- `docs/test-mcp-servers.md` lists MCP servers useful for local Inspector
+- `docs/test-mcp-servers.md` lists MCP servers useful for local workbench
   testing.
 
 ## Current Status
@@ -115,8 +148,8 @@ The initial local product is being built as an npm workspace with:
 
 Implemented so far:
 
-- a React/Vite MCP Inspector workbench UI
-- a local TypeScript/Node.js Inspector Runtime API
+- a React/Vite MCP Toolkit workbench UI
+- a local TypeScript/Node.js runtime API in `apps/inspector-runtime`
 - shared TypeScript contracts in `packages/core`
 - runtime endpoints for health, connections, capabilities, tool calls, history,
   and replay shapes
@@ -205,7 +238,7 @@ the configured profile file.
 
 ### Docker Compose
 
-The local Docker setup starts the MCP Inspector web UI and local runtime without
+The local Docker setup starts the MCP Toolkit web UI and local runtime without
 Postgres, Redis, Kubernetes, or hosted SaaS services.
 
 Build and start the local stack:

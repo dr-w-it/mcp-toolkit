@@ -17,13 +17,13 @@ Completed:
 - selected the first implementation stack only where needed
 - added local development and Docker Compose workflows
 
-## Phase 2: MCP Inspector MVP
+## Phase 2: MCP Toolkit Local Workbench MVP
 
 Goal: become useful for MCP developers as quickly as possible.
 
-MCP Inspector is the first open-source product under the dr-w devtools lab. The
-goal is developer adoption and daily debugging usefulness, not monetization or
-enterprise platform scope.
+MCP Toolkit is the first open-source product under the dr-w devtools lab. The
+goal is developer adoption and daily debugging usefulness, not monetization,
+head-to-head generic inspection competition, or enterprise platform scope.
 
 MVP scope:
 
@@ -32,15 +32,18 @@ MVP scope:
 - support environment variables and auth headers
 - inspect tools, resources, prompts, schemas, and capabilities
 - execute tool calls through a structured request editor
+- save requests for repeatable local workflows
 - view formatted JSON and raw requests/responses
 - replay requests
 - keep request history
-- provide a timeline view
-- import and export traces
+- provide a trace timeline view
+- compare traces and responses
+- import, sanitize, and export traces
+- surface security review signals and local audit reports
 
 Current implementation status:
 
-- the web app has a focused inspector workbench UI
+- the web app has a focused local workbench UI
 - the local runtime exposes the first typed API contract
 - the UI can read runtime health, connections, capabilities, and history
 - the UI can submit structured JSON tool calls to the runtime
@@ -56,11 +59,28 @@ Current implementation status:
 
 Remaining MVP work:
 
-- persist local connection profiles once a secret storage/redaction policy exists
-- persist request history in local storage, local files, or SQLite
+- persist local connection profiles once a secret storage and redaction policy
+  exists
+- improve saved requests and request history as explicit local workflows
 - harden replay and error surfaces around real runtime execution
-- define trace import/export format and UI flow
-- add HTTP and SSE MCP transports after the local `stdio` path is stable
+- add trace timeline navigation
+- add trace diff and response comparison
+- add a security review panel
+- add secret redaction for local history and trace surfaces
+- add risky tool detection
+- add trace export sanitization
+- add a local audit report
+
+Near-term roadmap items:
+
+- Saved Requests
+- Trace timeline
+- Trace diff / response comparison
+- Security Review panel
+- Secret redaction
+- Risky tool detection
+- Trace export sanitization
+- Local audit report
 
 Out of scope for the MVP:
 
@@ -79,7 +99,7 @@ These are the next concrete steps before moving beyond the MVP.
 
 ### Step 1: Real `stdio` MCP Transport
 
-Goal: make MCP Inspector useful against one real local MCP server path.
+Goal: make MCP Toolkit useful against one real local MCP server path.
 
 Status: complete for the first local filesystem-server path.
 
@@ -120,22 +140,26 @@ error states and UI polish.
 - show clear UI states for success, failure, timeout, disconnected runtime, and
   invalid JSON input
 
-### Step 4: Local History and Replay
+### Step 4: Saved Requests, Local History, and Replay
 
 Goal: turn tool calls into a repeatable debugging workflow.
 
 - store request/response history locally
+- save named requests independently from raw history
 - make timeline entries selectable
 - wire replay from a previous request id
 - decide whether replay reuses the original input exactly or allows editing
   before execution
 
-### Step 5: Trace Import and Export
+### Step 5: Trace Timeline, Diff, Import, and Export
 
 Goal: allow developers to keep and share local debugging artifacts.
 
 - define a minimal trace file format
+- add a trace timeline for request, response, timing, and error events
+- compare two traces or responses to highlight behavior changes
 - export selected requests, responses, raw protocol data, and timing metadata
+- sanitize trace exports before sharing
 - import traces into the timeline without requiring a live MCP server
 
 ### Step 6: Remote MCP Transports
@@ -146,6 +170,17 @@ Goal: support remote MCP servers after the local runtime path is real.
 - support auth headers without leaking secrets into UI logs or trace exports
 - handle remote auth, network, CORS, and transport-specific errors cleanly
 
+### Step 7: Security Review and Local Audit
+
+Goal: make security review a useful local workflow without turning the MVP into
+an enforcement platform.
+
+- add a security review panel
+- detect risky tools and risky tool descriptions
+- surface missing auth and unsafe exposure signals
+- redact secrets from history, traces, and exports
+- generate a local audit report from selected traces and server capabilities
+
 ## Phase 3: Developer Workflow Improvements
 
 Potential additions:
@@ -153,6 +188,7 @@ Potential additions:
 - response viewer improvements
 - schema explorer
 - saved sessions
+- saved requests
 - response diffing
 - visual graph of tools and resources
 - local server presets
@@ -165,6 +201,10 @@ Potential additions:
 
 - risky tool detection
 - missing auth visibility
+- security review panel
+- secret redaction
+- trace export sanitization
+- local audit report
 - secret exposure warnings
 - prompt injection indicators
 - permission analysis
@@ -173,8 +213,8 @@ Potential additions:
 
 Security checks should initially be informative and non-blocking. The product
 should teach developers what a risk means before it tries to enforce policy.
-Security visibility is a differentiator, but it should not replace the initial
-inspection and debugging positioning.
+Security visibility is a differentiator, but it should stay tied to concrete
+local debugging, replay, trace, and audit workflows.
 
 ## Phase 5: Auth, Gateway, and Observability
 
@@ -191,8 +231,8 @@ Potential future direction:
 - hosted observability
 - team collaboration
 
-These capabilities should be considered only after the inspector is useful as a
-developer tool.
+These capabilities should be considered only after the local workbench is useful
+as a developer tool.
 
 ## Phase 6: Hosted Platform
 
@@ -205,7 +245,7 @@ Optional future direction:
 - enterprise authentication
 - governance dashboards
 
-This phase should remain optional until the open-source inspector has clear
+This phase should remain optional until the open-source workbench has clear
 developer adoption and repeated usage.
 
 ## Success Metrics
@@ -219,4 +259,5 @@ Early success means:
 - community feedback
 - contributors
 - mentions in MCP developer communities
-- developers using MCP Inspector in daily debugging workflows
+- developers using MCP Toolkit in daily debugging, replay, and security review
+  workflows

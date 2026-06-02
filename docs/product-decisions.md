@@ -13,35 +13,44 @@ The identity comes from the historical `wahrheit` nickname and the
 internet, open-source oriented, experimentation-friendly, and developer-first.
 
 The ecosystem should live under `dr-w.it`, with products exposed as individual
-tools:
+tools. Near-term names should prefer workbench, replay, trace, and security
+language over making "inspector" the public product identity:
 
-- `inspector.dr-w.it`
+- `toolkit.dr-w.it`
+- `workbench.dr-w.it`
+- `security-workbench.dr-w.it`
+- `traces.dr-w.it`
 - `gateway.dr-w.it`
 - `auth.dr-w.it`
 
 This avoids creating a generic startup-style AI/devtools brand too early.
 
-### The first product is MCP Inspector
+### The first product direction is MCP Toolkit
 
-MCP Toolkit starts with **MCP Inspector**, a developer tool for inspecting and
-debugging MCP servers.
+MCP Toolkit starts as a local-first MCP workbench for debugging, replaying, and
+securing MCP server interactions.
 
-MCP Inspector is positioned as a developer tool, not an AI application platform.
-It should be closer to Postman, Insomnia, browser DevTools, Raycast, or Linear
-than to a chatbot, prompt playground, or low-code agent builder.
+MCP Toolkit is positioned as a developer tool, not an AI application platform.
+It should be closer to a local workbench, request replay tool, trace review
+surface, and security review workflow than to a chatbot, prompt playground, or
+low-code agent builder.
 
-The initial positioning is inspection and debugging first. Security visibility
-is a differentiator, but it should not become the primary product story before
-the inspector is useful.
+The initial positioning is debugging, replay, traceability, and security review.
+Generic inspection should be treated as a necessary capability, not the primary
+competitive story.
+
+"MCP Inspector" may remain as an internal or local module name where it matches
+the existing workspace layout, but it should not be the main public product name
+unless clearly qualified.
 
 ### The project starts open-source-first
 
 The initial project should be useful as open-source local tooling before any
 hosted or commercial product is considered.
 
-MCP Inspector should be web-first, but not cloud-first. Developers should be
-able to run the product locally from the open-source repository without relying
-on a hosted SaaS service.
+MCP Toolkit should be web-first, but not cloud-first. Developers should be able
+to run the product locally from the open-source repository without relying on a
+hosted SaaS service.
 
 ### Developer adoption comes before monetization
 
@@ -60,7 +69,9 @@ The MVP is limited to:
 - connect
 - inspect
 - call
+- save
 - replay
+- review
 
 Anything outside this flow should be treated as future scope unless it is needed
 to make the MVP work.
@@ -104,7 +115,7 @@ The product should keep one primary frontend: `apps/inspector-web`.
 
 A separate marketing site or public documentation app may be introduced later,
 but there should not be a separate SaaS product frontend that duplicates the
-inspector UI.
+workbench UI.
 
 ### Local deployment should be container-friendly
 
@@ -158,13 +169,14 @@ gateway protection.
 
 ### UX should be technical, fast, and focused
 
-MCP Inspector should feel clean, modern, fast, technical, and approachable.
+MCP Toolkit should feel clean, modern, fast, technical, and approachable.
 
 Avoid enterprise dashboard overload, cluttered interfaces, generic AI
 aesthetics, neon cyberpunk branding, and mascot-driven design.
 
-The product should take inspiration from Postman, Insomnia, Raycast, Linear, and
-browser DevTools.
+The product should take inspiration from focused developer tools such as
+Postman, Insomnia, Raycast, Linear, browser DevTools, trace viewers, and local
+security review tools.
 
 Brand writing should avoid startup buzzwords, AI hype wording, enterprise
 corporate language, and unnecessary complexity.
@@ -174,6 +186,13 @@ corporate language, and unnecessary complexity.
 Future capabilities may include:
 
 - security insights
+- saved requests
+- trace timeline and trace diffing
+- response comparison
+- secret redaction
+- risky tool detection
+- trace export sanitization
+- local audit reports
 - auth helpers
 - MCP gateway
 - observability
@@ -185,4 +204,4 @@ These are long-term possibilities, not current requirements.
 ## Working Rule
 
 When a product or architecture decision is unclear, prefer the simplest option
-that supports the MCP Inspector MVP.
+that supports the local MCP Toolkit workbench MVP.

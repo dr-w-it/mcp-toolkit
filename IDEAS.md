@@ -2,14 +2,17 @@
 
 This file collects possible directions. Items here are not commitments.
 
-## Inspector
+## Workbench
 
 - capability explorer
 - schema explorer
-- request timeline
+- saved requests
+- trace timeline
 - replay sessions
 - response viewer
 - response diffing
+- trace diffing
+- response comparison
 - prompt explorer
 - local server presets
 
@@ -20,15 +23,20 @@ This file collects possible directions. Items here are not commitments.
 - shareable local traces
 - examples for common MCP servers
 - docs for debugging common MCP issues
+- local audit reports
 
 ## Security
 
+- risky tool detection
 - unsafe tool detection
 - missing auth detection
 - dangerous tool description warnings
+- secret redaction
+- trace export sanitization
 - secret exposure analysis
 - prompt injection analysis
 - permission summaries
+- security review panel
 
 ## Future Integrations
 

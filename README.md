@@ -151,8 +151,8 @@ Implemented so far:
 - a React/Vite MCP Toolkit workbench UI
 - a local TypeScript/Node.js runtime API in `apps/inspector-runtime`
 - shared TypeScript contracts in `packages/core`
-- runtime endpoints for health, connections, capabilities, tool calls, history,
-  and replay shapes
+- runtime endpoints for health, connections, capabilities, tool calls, saved
+  requests, history, and replay shapes
 - real `stdio` MCP discovery and tool execution through the local runtime
 - real HTTP and SSE MCP discovery and tool execution through the local runtime
 - a structured JSON tool request editor and formatted/raw response viewer
@@ -162,6 +162,8 @@ Implemented so far:
   selecting, and editing `stdio`, HTTP, and SSE shapes
 - local runtime handling for profile env vars and auth headers without echoing
   secret values in list responses
+- runtime-backed saved requests scoped to each connection for saving, loading,
+  renaming, deleting, and re-executing common tool invocations
 - optional file-backed local request history and replay records
 - local trace import/export for captured history artifacts
 - runtime-selected UI themes with an internal default theme and optional local
@@ -173,8 +175,8 @@ Important current limits:
 - connection profile persistence stores local metadata only and does not store
   profile env vars or auth headers
 - history and replay persistence is opt-in through `INSPECTOR_HISTORY_PATH`
-- trace exports and persisted history may include sensitive tool inputs,
-  outputs, or raw MCP payloads entered or returned during debugging
+- saved requests, trace exports, and persisted history may include sensitive
+  tool inputs, outputs, or raw MCP payloads entered or returned during debugging
 
 ## Development
 
@@ -238,9 +240,16 @@ commands, args, URLs, and timestamps, but it does not store stdio `env` values
 or HTTP/SSE `headers`. To reset persisted profiles, stop the runtime and delete
 the configured profile file.
 
-Relative `INSPECTOR_CONNECTIONS_PATH` and `INSPECTOR_HISTORY_PATH` values are
-resolved from `apps/inspector-runtime`. Relative `INSPECTOR_THEMES_PATH` values
-are resolved from `apps/inspector-web`.
+Relative `INSPECTOR_CONNECTIONS_PATH`, `INSPECTOR_HISTORY_PATH`, and
+`INSPECTOR_SAVED_REQUESTS_PATH` values are resolved from
+`apps/inspector-runtime`. Relative `INSPECTOR_THEMES_PATH` values are resolved
+from `apps/inspector-web`.
+
+Saved requests persist by default in `.mcp-inspector/saved-requests.json`. Set
+`INSPECTOR_SAVED_REQUESTS_PATH` to use a different local JSON file. The file
+stores saved request names, descriptions, connection ids, tool names, and JSON
+input payloads. Treat it as sensitive local data when saved tool inputs include
+secrets, private paths, customer data, or other debugging artifacts.
 
 ### Docker Compose
 

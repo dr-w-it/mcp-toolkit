@@ -371,6 +371,133 @@ remote URL and passes optional auth headers only to the transport layer. All
 transports preserve raw JSON-RPC request/response data for the response viewer
 without including HTTP headers or environment values.
 
+## Saved Requests
+
+Saved requests are persisted tool invocation templates scoped to one connection.
+They store the selected tool name, JSON input payload, display name, and optional
+description so the web UI can load or execute common requests without rebuilding
+the input manually.
+
+Saved requests persist locally by default in
+`.mcp-inspector/saved-requests.json`; set `INSPECTOR_SAVED_REQUESTS_PATH` before
+starting the runtime to use a different JSON file path. Relative saved request
+paths are resolved from `apps/inspector-runtime`:
+
+```sh
+INSPECTOR_SAVED_REQUESTS_PATH=.mcp-inspector/saved-requests.json ./dev.sh local
+```
+
+The saved request file contains tool input payloads exactly as saved. Treat it
+as sensitive local data when inputs include secrets, private paths, customer
+data, or debugging artifacts.
+
+```http
+GET /connections/:connectionId/saved-requests
+```
+
+Response type: `ListSavedRequestsResponse`
+
+```json
+{
+  "savedRequests": [
+    {
+      "id": "saved-request-001",
+      "connectionId": "local-filesystem",
+      "name": "Read README",
+      "toolName": "read_file",
+      "input": {
+        "path": "./README.md"
+      },
+      "description": "Smoke test the filesystem server",
+      "createdAt": "2026-06-03T10:00:00.000Z",
+      "updatedAt": "2026-06-03T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+```http
+POST /connections/:connectionId/saved-requests
+Content-Type: application/json
+```
+
+Request type: `CreateSavedRequestRequest`
+
+```json
+{
+  "name": "Read README",
+  "toolName": "read_file",
+  "input": {
+    "path": "./README.md"
+  },
+  "description": "Smoke test the filesystem server"
+}
+```
+
+Response type: `CreateSavedRequestResponse`
+
+```json
+{
+  "savedRequest": {
+    "id": "saved-request-001",
+    "connectionId": "local-filesystem",
+    "name": "Read README",
+    "toolName": "read_file",
+    "input": {
+      "path": "./README.md"
+    },
+    "description": "Smoke test the filesystem server",
+    "createdAt": "2026-06-03T10:00:00.000Z",
+    "updatedAt": "2026-06-03T10:00:00.000Z"
+  }
+}
+```
+
+```http
+PUT /saved-requests/:savedRequestId
+Content-Type: application/json
+```
+
+Request type: `UpdateSavedRequestRequest`
+
+```json
+{
+  "name": "Read project README",
+  "description": "Baseline filesystem server check"
+}
+```
+
+Response type: `UpdateSavedRequestResponse`
+
+```json
+{
+  "savedRequest": {
+    "id": "saved-request-001",
+    "connectionId": "local-filesystem",
+    "name": "Read project README",
+    "toolName": "read_file",
+    "input": {
+      "path": "./README.md"
+    },
+    "description": "Baseline filesystem server check",
+    "createdAt": "2026-06-03T10:00:00.000Z",
+    "updatedAt": "2026-06-03T10:05:00.000Z"
+  }
+}
+```
+
+```http
+DELETE /saved-requests/:savedRequestId
+```
+
+Response type: `DeleteSavedRequestResponse`
+
+```json
+{
+  "deletedId": "saved-request-001"
+}
+```
+
 ## History
 
 ```http

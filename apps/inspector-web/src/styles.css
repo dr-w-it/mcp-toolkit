@@ -313,6 +313,7 @@ textarea::placeholder {
 .response-header,
 .code-panel-header,
 .key-value-header,
+.saved-requests-header,
 .form-actions {
   display: flex;
   align-items: center;
@@ -756,7 +757,7 @@ textarea::placeholder {
 
 .detail-pane {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) minmax(180px, 32%);
+  grid-template-rows: auto minmax(0, 1fr) minmax(220px, 30%) minmax(170px, 24%);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -862,6 +863,121 @@ textarea::placeholder {
   display: block;
   margin: -4px 0 10px;
   overflow-wrap: anywhere;
+}
+
+.saved-requests-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-panel-muted);
+}
+
+.saved-requests-header {
+  min-width: 0;
+  min-height: 58px;
+  border-bottom: 1px solid var(--color-border);
+  padding: 10px 14px;
+}
+
+.saved-requests-header h3 {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.saved-request-create {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 1fr) auto;
+  gap: 8px;
+  width: min(680px, 70%);
+  min-width: 0;
+}
+
+.saved-request-create button,
+.saved-request-actions button {
+  min-height: 38px;
+  padding: 0 11px;
+}
+
+.saved-requests-panel > .inline-error {
+  padding: 8px 14px 0;
+}
+
+.saved-request-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  scrollbar-gutter: stable;
+}
+
+.saved-request-card {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(90px, 0.55fr) auto;
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  padding: 10px;
+}
+
+.saved-request-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.saved-request-meta {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.saved-request-meta span,
+.saved-request-meta small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-request-meta span {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.saved-request-card pre {
+  grid-column: 1 / -1;
+  max-height: 58px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.saved-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.saved-request-actions button {
+  padding: 0 8px;
 }
 
 .response-viewer {
@@ -1025,8 +1141,28 @@ pre {
   }
 
   .detail-pane {
-    grid-template-rows: auto auto minmax(260px, 1fr);
+    grid-template-rows: auto auto auto minmax(260px, 1fr);
     overflow: visible;
+  }
+
+  .saved-requests-panel {
+    overflow: visible;
+  }
+
+  .saved-requests-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .saved-request-create,
+  .saved-request-card,
+  .saved-request-fields {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .saved-request-actions {
+    justify-content: flex-start;
   }
 
   .json-editor textarea {
@@ -1057,6 +1193,7 @@ pre {
 
   .form-actions,
   .section-header,
+  .saved-request-actions,
   .target-actions {
     align-items: flex-start;
     flex-direction: column;
@@ -1064,6 +1201,7 @@ pre {
   }
 
   .form-actions button,
+  .saved-request-actions button,
   .section-actions,
   .target-actions button,
   .target-actions span {

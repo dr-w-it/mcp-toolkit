@@ -125,6 +125,60 @@ repository rather than a sensitive working tree when possible.
 }
 ```
 
+### GitHub Copilot Remote MCP
+
+Use this when testing an authenticated remote HTTP MCP server maintained by
+GitHub. This profile requires a GitHub personal access token because MCP Toolkit
+does not currently implement the GitHub MCP one-click OAuth flow.
+
+Remote URL:
+
+```text
+https://api.githubcopilot.com/mcp/
+```
+
+Create a fine-grained personal access token with the smallest useful test
+surface:
+
+- Expiration: short, such as 1 or 7 days.
+- Resource owner: the user or organization that owns the test repository.
+- Repository access: `Only select repositories`.
+- Repositories: select one non-sensitive test repository.
+- Repository permissions:
+  - `Metadata`: read-only.
+  - `Contents`: read-only.
+- Optional read-only permissions for broader inspection tests:
+  - `Issues`: read-only.
+  - `Pull requests`: read-only.
+
+Do not use a classic PAT with broad `repo` scope for routine MCP Inspector
+testing. Do not grant write permissions unless a test explicitly needs write
+tool coverage.
+
+Connection profile:
+
+```json
+{
+  "name": "GitHub Copilot remote MCP",
+  "transport": "http",
+  "url": "https://api.githubcopilot.com/mcp/",
+  "headers": {
+    "Authorization": "Bearer <fine-grained-pat>"
+  }
+}
+```
+
+In the web UI, create an `HTTP` connection with:
+
+- URL: `https://api.githubcopilot.com/mcp/`
+- Header name: `Authorization`
+- Header value: `Bearer <fine-grained-pat>`
+
+MCP Toolkit omits auth headers from connection list responses and local trace
+exports. Persisted connection profiles intentionally do not store auth header
+values, so re-enter the token after restarting the runtime or editing the
+profile.
+
 ## Create Through The Runtime API
 
 For HTTP and SSE testing, start the SDK remote transport test server:

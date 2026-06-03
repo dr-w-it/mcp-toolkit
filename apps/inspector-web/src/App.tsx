@@ -652,12 +652,17 @@ export function App() {
   async function loadConnectionCapabilities(connectionId: string) {
     setRuntimeData((currentData) => ({
       ...currentData,
+      capabilities: createEmptyCapabilitySummary(connectionId),
       error: null,
       isLoading: true,
     }));
 
     try {
       const capabilities = await localRuntimeClient.getCapabilities(connectionId);
+
+      if (selectedConnectionIdRef.current !== connectionId) {
+        return;
+      }
 
       setRuntimeData((currentData) => ({
         ...currentData,
@@ -666,8 +671,13 @@ export function App() {
         isLoading: false,
       }));
     } catch (error) {
+      if (selectedConnectionIdRef.current !== connectionId) {
+        return;
+      }
+
       setRuntimeData((currentData) => ({
         ...currentData,
+        capabilities: createEmptyCapabilitySummary(connectionId),
         error: getErrorMessage(error),
         isLoading: false,
       }));
@@ -720,9 +730,7 @@ export function App() {
           }));
           closeComposer();
 
-          if (updatedProfile.connection.transport === "stdio") {
-            await loadConnectionCapabilities(updatedProfile.connection.id);
-          }
+          await loadConnectionCapabilities(updatedProfile.connection.id);
         } catch (error) {
           setComposerError(getErrorMessage(error));
         } finally {
@@ -772,9 +780,7 @@ export function App() {
         }));
         closeComposer();
 
-        if (createdProfile.connection.transport === "stdio") {
-          await loadConnectionCapabilities(createdProfile.connection.id);
-        }
+        await loadConnectionCapabilities(createdProfile.connection.id);
       } catch (error) {
         setComposerError(getErrorMessage(error));
       } finally {
@@ -808,6 +814,8 @@ export function App() {
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities: createEmptyCapabilitySummary(connectionId),
+        error: null,
+        isLoading: false,
       }));
       return;
     }

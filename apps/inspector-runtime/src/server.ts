@@ -20,6 +20,7 @@ import type {
   RuntimeErrorCode,
   RuntimeErrorResponse,
   RuntimeHealthResponse,
+  RuntimeThemeResponse,
   TraceArtifact,
   TraceArtifactEntry,
   ToolCallRequest,
@@ -38,6 +39,7 @@ import {
 } from "@dr-w/mcp-client";
 import { createConnectionProfileStore } from "./connectionProfileStore.js";
 import { createHistoryStore, isTraceArtifactEntry } from "./historyStore.js";
+import { createThemeStore } from "./themeStore.js";
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
@@ -46,6 +48,10 @@ const connectionProfileStore = createConnectionProfileStore(
   process.env["INSPECTOR_CONNECTIONS_PATH"] ?? ".mcp-inspector/connections.json",
 );
 const historyStore = createHistoryStore(process.env["INSPECTOR_HISTORY_PATH"]);
+const themeStore = createThemeStore({
+  requestedThemeId: process.env["INSPECTOR_THEME"],
+  themesPath: process.env["INSPECTOR_THEMES_PATH"],
+});
 const allowedWebOrigins = new Set(
   (
     process.env["INSPECTOR_WEB_ORIGINS"] ??
@@ -794,6 +800,13 @@ const server = createServer(async (request, response) => {
       service: "inspector-runtime",
       mode: "local",
     };
+
+    sendJson(request, response, 200, body);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/theme") {
+    const body: RuntimeThemeResponse = await themeStore.getTheme();
 
     sendJson(request, response, 200, body);
     return;

@@ -155,6 +155,25 @@ export interface RuntimeHealthResponse {
   mode: "local";
 }
 
+export interface ThemeDefinition {
+  id: string;
+  name: string;
+  tokens: Record<string, string>;
+}
+
+export interface ThemeDiagnostic {
+  level: "info" | "warning";
+  message: string;
+}
+
+export interface RuntimeThemeResponse {
+  activeTheme: ThemeDefinition;
+  availableThemes: ThemeDefinition[];
+  diagnostics: ThemeDiagnostic[];
+  requestedThemeId?: string;
+  themesPath: string;
+}
+
 export interface ListConnectionsResponse {
   connections: ConnectionProfile[];
 }

@@ -16,6 +16,7 @@ import type {
   RuntimeErrorCode,
   RuntimeErrorResponse,
   RuntimeHealthResponse,
+  RuntimeThemeResponse,
   UpdateConnectionProfileRequest,
   UpdateConnectionProfileResponse,
 } from "@dr-w/core";
@@ -50,6 +51,10 @@ export class LocalRuntimeClient {
 
   getHealth(signal?: AbortSignal): Promise<RuntimeHealthResponse> {
     return this.getJson<RuntimeHealthResponse>("/health", signal);
+  }
+
+  getTheme(signal?: AbortSignal): Promise<RuntimeThemeResponse> {
+    return this.getJson<RuntimeThemeResponse>("/theme", signal);
   }
 
   listConnections(signal?: AbortSignal): Promise<ListConnectionsResponse> {

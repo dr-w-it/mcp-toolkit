@@ -18,6 +18,7 @@ import type {
   PromptDefinition,
   ResourceDefinition,
   RuntimeHealthResponse,
+  RuntimeThemeResponse,
   TraceArtifact,
   TraceArtifactEntry,
   ToolDefinition,
@@ -39,6 +40,7 @@ interface RuntimeData {
   health: RuntimeHealthResponse | null;
   isLoading: boolean;
   source: RuntimeDataSource;
+  theme: RuntimeThemeResponse | null;
   traces: TraceEntry[];
 }
 
@@ -229,6 +231,14 @@ function getRuntimeTone(data: RuntimeData) {
   return data.source === "runtime" ? "online" : "fallback";
 }
 
+function applyTheme(theme: RuntimeThemeResponse) {
+  for (const [tokenName, tokenValue] of Object.entries(theme.activeTheme.tokens)) {
+    document.documentElement.style.setProperty(tokenName, tokenValue);
+  }
+
+  document.documentElement.dataset.theme = theme.activeTheme.id;
+}
+
 export function App() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(
     connectionProfiles[0]?.id ?? null,
@@ -241,6 +251,7 @@ export function App() {
     health: null,
     isLoading: true,
     source: "mock",
+    theme: null,
     traces: traceEntries,
   });
   const [draftConnections, setDraftConnections] = useState<ConnectionProfile[]>([]);
@@ -326,6 +337,12 @@ export function App() {
   const selectedSchema =
     schemas.find((schema) => schema.id === selectedCapabilityKeys.schemas) ?? schemas[0];
   const runtimeTone = getRuntimeTone(runtimeData);
+  const themeDiagnostics =
+    runtimeData.theme?.diagnostics.filter((diagnostic) => diagnostic.level === "warning") ?? [];
+  const themeStatus =
+    runtimeData.theme && runtimeData.source === "runtime"
+      ? `Theme: ${runtimeData.theme.activeTheme.name}`
+      : null;
   const isRemoteTransport = transport === "http" || transport === "sse";
   const canSaveConnection =
     name.trim().length > 0 &&
@@ -493,11 +510,13 @@ export function App() {
       }));
 
       try {
-        const [health, connectionsResponse, historyResponse] = await Promise.all([
+        const [health, themeResponse, connectionsResponse, historyResponse] = await Promise.all([
           localRuntimeClient.getHealth(signal),
+          localRuntimeClient.getTheme(signal),
           localRuntimeClient.listConnections(signal),
           localRuntimeClient.listHistory(signal),
         ]);
+        applyTheme(themeResponse);
         const nextConnections = connectionsResponse.connections;
         const preferredConnectionId = selectedConnectionIdRef.current;
         const nextSelectedConnectionId =
@@ -518,6 +537,7 @@ export function App() {
           health,
           isLoading: false,
           source: "runtime",
+          theme: themeResponse,
           traces: historyResponse.traces,
         });
       } catch (error) {
@@ -532,6 +552,7 @@ export function App() {
           health: null,
           isLoading: false,
           source: "mock",
+          theme: null,
           traces: traceEntries,
         });
         const preferredConnectionId = selectedConnectionIdRef.current;
@@ -995,8 +1016,17 @@ export function App() {
                   ? `${runtimeData.health?.service ?? "inspector-runtime"} at ${runtimeBaseUrl}`
                   : runtimeData.error ?? "Local runtime unavailable"}
             </small>
+            {themeStatus ? <small className="theme-status">{themeStatus}</small> : null}
           </div>
         </section>
+
+        {themeDiagnostics.length > 0 ? (
+          <div className="theme-diagnostics">
+            {themeDiagnostics.map((diagnostic) => (
+              <small key={diagnostic.message}>{diagnostic.message}</small>
+            ))}
+          </div>
+        ) : null}
 
         {runtimeTone === "fallback" ? (
           <div className="fallback-banner">Fallback data</div>

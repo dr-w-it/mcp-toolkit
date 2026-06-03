@@ -31,6 +31,107 @@ Response type: `RuntimeHealthResponse`
 }
 ```
 
+## Theme
+
+```http
+GET /theme
+```
+
+Response type: `RuntimeThemeResponse`
+
+```json
+{
+  "activeTheme": {
+    "id": "default",
+    "name": "MCP Toolkit Default",
+    "tokens": {
+      "--color-background": "#0f1115",
+      "--color-surface": "#171b21",
+      "--color-accent": "#3abff8"
+    }
+  },
+  "availableThemes": [
+    {
+      "id": "default",
+      "name": "MCP Toolkit Default",
+      "tokens": {
+        "--color-background": "#0f1115",
+        "--color-surface": "#171b21",
+        "--color-accent": "#3abff8"
+      }
+    }
+  ],
+  "diagnostics": [],
+  "themesPath": "/absolute/path/to/apps/inspector-web/.mcp-inspector/theme"
+}
+```
+
+The default theme is internal to the application runtime and is always
+available as `default`. It is not read from the local custom theme directory or
+from the directory configured by `INSPECTOR_THEMES_PATH`.
+
+Custom themes are local workbench personalization. The runtime reads `*.json`
+theme files from `apps/inspector-web/.mcp-inspector/theme` by default. Set
+`INSPECTOR_THEMES_PATH` before starting the runtime to use a different local
+directory. Relative theme paths are resolved from `apps/inspector-web`:
+
+```sh
+INSPECTOR_THEMES_PATH=.mcp-inspector/theme ./dev.sh local
+```
+
+Set `INSPECTOR_THEME` to select the active theme by stable id:
+
+```sh
+INSPECTOR_THEME=high-contrast ./dev.sh local
+```
+
+If `INSPECTOR_THEME` is missing, empty, `default`, unknown, or points to an
+invalid custom theme, the runtime returns the internal default theme. Theme
+loading diagnostics are returned as non-fatal warnings so invalid local files do
+not prevent startup.
+
+Theme files must define a stable lowercase id, a display name, and a complete
+`tokens` object for the semantic CSS token set returned by the default theme:
+
+```json
+{
+  "id": "high-contrast",
+  "name": "High Contrast",
+  "tokens": {
+    "--color-background": "#000000",
+    "--color-panel": "#000000",
+    "--color-panel-muted": "#050505",
+    "--color-surface": "#101010",
+    "--color-surface-elevated": "#181818",
+    "--color-border": "#6b7280",
+    "--color-text": "#ffffff",
+    "--color-text-muted": "#cbd5e1",
+    "--color-text-secondary": "#e5e7eb",
+    "--color-text-subtle": "#94a3b8",
+    "--color-text-strong": "#ffffff",
+    "--color-accent": "#38bdf8",
+    "--color-accent-contrast": "#001018",
+    "--color-accent-soft": "rgba(56, 189, 248, 0.16)",
+    "--color-accent-softer": "rgba(56, 189, 248, 0.2)",
+    "--color-accent-border": "rgba(56, 189, 248, 0.72)",
+    "--color-success": "#22c55e",
+    "--color-success-soft": "rgba(34, 197, 94, 0.18)",
+    "--color-warning": "#f59e0b",
+    "--color-warning-soft": "rgba(245, 158, 11, 0.16)",
+    "--color-warning-softer": "rgba(245, 158, 11, 0.12)",
+    "--color-warning-border": "rgba(245, 158, 11, 0.72)",
+    "--color-warning-border-muted": "rgba(245, 158, 11, 0.55)",
+    "--color-danger": "#ef4444",
+    "--color-danger-soft": "rgba(239, 68, 68, 0.18)",
+    "--color-code-background": "#000000",
+    "--color-code-text": "#dbeafe",
+    "--color-selection": "rgba(56, 189, 248, 0.22)",
+    "--color-focus-ring": "rgba(56, 189, 248, 0.22)",
+    "--color-schema-accent": "#a78bfa"
+  }
+}
+```
+
 ## Connections
 
 ```http
@@ -63,7 +164,8 @@ the browser after profile creation.
 Connection profile metadata is persisted locally by default so profile ids stay
 stable across Inspector Runtime restarts. The default storage file is
 `.mcp-inspector/connections.json`; set `INSPECTOR_CONNECTIONS_PATH` before
-starting the runtime to use a different JSON file path:
+starting the runtime to use a different JSON file path. Relative connection
+profile paths are resolved from `apps/inspector-runtime`:
 
 ```sh
 INSPECTOR_CONNECTIONS_PATH=.mcp-inspector/connections.json ./dev.sh local
@@ -297,7 +399,8 @@ History entries are runtime-local traces. A trace can include `requestId` when
 the operation can be replayed.
 
 Local history persistence is opt-in. Set `INSPECTOR_HISTORY_PATH` to a JSON
-file path before starting the runtime to keep history across runtime restarts:
+file path before starting the runtime to keep history across runtime restarts.
+Relative history paths are resolved from `apps/inspector-runtime`:
 
 ```sh
 INSPECTOR_HISTORY_PATH=.mcp-inspector/history.json ./dev.sh local

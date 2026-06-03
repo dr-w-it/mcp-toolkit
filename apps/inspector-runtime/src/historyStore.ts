@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   TraceArtifactEntry,
   ToolCallRequest,
@@ -20,10 +21,12 @@ export interface HistoryStore {
   save(entries: TraceArtifactEntry[]): Promise<void>;
 }
 
+const runtimeAppRoot = fileURLToPath(new URL("..", import.meta.url));
+
 export function createHistoryStore(storagePath: string | undefined): HistoryStore {
   const normalizedStoragePath = storagePath?.trim();
   const resolvedStoragePath = normalizedStoragePath
-    ? resolve(normalizedStoragePath)
+    ? resolveRuntimePath(normalizedStoragePath)
     : undefined;
 
   return {
@@ -73,6 +76,10 @@ export function createHistoryStore(storagePath: string | undefined): HistoryStor
       await rename(tempPath, resolvedStoragePath);
     },
   };
+}
+
+function resolveRuntimePath(pathValue: string) {
+  return isAbsolute(pathValue) ? pathValue : resolve(runtimeAppRoot, pathValue);
 }
 
 export function isTraceArtifactEntry(value: unknown): value is TraceArtifactEntry {

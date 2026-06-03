@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ConnectionProfile } from "@dr-w/core";
 
 interface PersistedConnectionProfilesFile {
@@ -15,8 +16,13 @@ export interface ConnectionProfileStore {
   save(profiles: ConnectionProfile[]): Promise<void>;
 }
 
+const runtimeAppRoot = fileURLToPath(new URL("..", import.meta.url));
+
 export function createConnectionProfileStore(storagePath: string): ConnectionProfileStore {
-  const resolvedStoragePath = resolve(storagePath.trim() || ".mcp-inspector/connections.json");
+  const resolvedStoragePath = resolveRuntimePath(
+    storagePath,
+    ".mcp-inspector/connections.json",
+  );
 
   return {
     storagePath: resolvedStoragePath,
@@ -57,6 +63,12 @@ export function createConnectionProfileStore(storagePath: string): ConnectionPro
       await rename(tempPath, resolvedStoragePath);
     },
   };
+}
+
+function resolveRuntimePath(pathValue: string, defaultPath: string) {
+  const path = pathValue.trim() || defaultPath;
+
+  return isAbsolute(path) ? path : resolve(runtimeAppRoot, path);
 }
 
 function createPersistedConnectionProfilesFile(

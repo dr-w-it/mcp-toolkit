@@ -225,6 +225,10 @@ textarea::placeholder {
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
+.runtime-status .theme-status {
+  color: var(--color-text-secondary);
+}
+
 .runtime-status.fallback {
   border-color: var(--color-warning-border-muted);
 }
@@ -266,6 +270,20 @@ textarea::placeholder {
   font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
+}
+
+.theme-diagnostics {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--color-warning-border-muted);
+  border-radius: 8px;
+  background: var(--color-warning-softer);
+  padding: 10px 12px;
+}
+
+.theme-diagnostics small {
+  color: var(--color-warning);
+  line-height: 1.35;
 }
 
 .sidebar-section {

@@ -164,6 +164,8 @@ Implemented so far:
   secret values in list responses
 - optional file-backed local request history and replay records
 - local trace import/export for captured history artifacts
+- runtime-selected UI themes with an internal default theme and optional local
+  custom themes from `apps/inspector-web/.mcp-inspector/theme`
 - Docker Compose local development for the web UI and runtime
 
 Important current limits:
@@ -235,6 +237,10 @@ different local JSON file. The file stores profile ids, names, transports,
 commands, args, URLs, and timestamps, but it does not store stdio `env` values
 or HTTP/SSE `headers`. To reset persisted profiles, stop the runtime and delete
 the configured profile file.
+
+Relative `INSPECTOR_CONNECTIONS_PATH` and `INSPECTOR_HISTORY_PATH` values are
+resolved from `apps/inspector-runtime`. Relative `INSPECTOR_THEMES_PATH` values
+are resolved from `apps/inspector-web`.
 
 ### Docker Compose
 

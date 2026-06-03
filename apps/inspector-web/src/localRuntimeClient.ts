@@ -1,6 +1,9 @@
 import type {
   CreateConnectionProfileRequest,
   CreateConnectionProfileResponse,
+  CreateSavedRequestRequest,
+  CreateSavedRequestResponse,
+  DeleteSavedRequestResponse,
   ExecuteToolCallResponse,
   ExportTraceRequest,
   ExportTraceResponse,
@@ -11,6 +14,7 @@ import type {
   JsonValue,
   ListConnectionsResponse,
   ListHistoryResponse,
+  ListSavedRequestsResponse,
   ReplayToolCallRequest,
   ReplayToolCallResponse,
   RuntimeErrorCode,
@@ -19,6 +23,8 @@ import type {
   RuntimeThemeResponse,
   UpdateConnectionProfileRequest,
   UpdateConnectionProfileResponse,
+  UpdateSavedRequestRequest,
+  UpdateSavedRequestResponse,
 } from "@dr-w/core";
 
 export interface LocalRuntimeClientOptions {
@@ -92,6 +98,50 @@ export class LocalRuntimeClient {
 
   listHistory(signal?: AbortSignal): Promise<ListHistoryResponse> {
     return this.getJson<ListHistoryResponse>("/history", signal);
+  }
+
+  listSavedRequests(
+    connectionId: string,
+    signal?: AbortSignal,
+  ): Promise<ListSavedRequestsResponse> {
+    return this.getJson<ListSavedRequestsResponse>(
+      `/connections/${encodeURIComponent(connectionId)}/saved-requests`,
+      signal,
+    );
+  }
+
+  createSavedRequest(
+    connectionId: string,
+    request: CreateSavedRequestRequest,
+    signal?: AbortSignal,
+  ): Promise<CreateSavedRequestResponse> {
+    return this.postJson<CreateSavedRequestResponse>(
+      `/connections/${encodeURIComponent(connectionId)}/saved-requests`,
+      request,
+      signal,
+    );
+  }
+
+  updateSavedRequest(
+    savedRequestId: string,
+    request: UpdateSavedRequestRequest,
+    signal?: AbortSignal,
+  ): Promise<UpdateSavedRequestResponse> {
+    return this.putJson<UpdateSavedRequestResponse>(
+      `/saved-requests/${encodeURIComponent(savedRequestId)}`,
+      request,
+      signal,
+    );
+  }
+
+  deleteSavedRequest(
+    savedRequestId: string,
+    signal?: AbortSignal,
+  ): Promise<DeleteSavedRequestResponse> {
+    return this.deleteJson<DeleteSavedRequestResponse>(
+      `/saved-requests/${encodeURIComponent(savedRequestId)}`,
+      signal,
+    );
   }
 
   getTrace(traceId: string, signal?: AbortSignal): Promise<GetTraceResponse> {
@@ -191,6 +241,25 @@ export class LocalRuntimeClient {
 
     if (!response.ok) {
       throw await createRuntimeError(response, `PUT ${path}`);
+    }
+
+    return (await response.json()) as TResponse;
+  }
+
+  private async deleteJson<TResponse>(
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<TResponse> {
+    const response = await this.fetcher(`${this.baseUrl}${path}`, {
+      headers: {
+        Accept: "application/json",
+      },
+      method: "DELETE",
+      signal,
+    });
+
+    if (!response.ok) {
+      throw await createRuntimeError(response, `DELETE ${path}`);
     }
 
     return (await response.json()) as TResponse;

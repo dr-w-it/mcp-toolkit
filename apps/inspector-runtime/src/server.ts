@@ -4,6 +4,8 @@ import type {
   ConnectionTransport,
   CreateConnectionProfileRequest,
   CreateConnectionProfileResponse,
+  CreateSavedRequestResponse,
+  DeleteSavedRequestResponse,
   ExecuteToolCallRequest,
   ExecuteToolCallResponse,
   ExportTraceRequest,
@@ -15,18 +17,21 @@ import type {
   JsonValue,
   ListConnectionsResponse,
   ListHistoryResponse,
+  ListSavedRequestsResponse,
   ReplayToolCallRequest,
   ReplayToolCallResponse,
   RuntimeErrorCode,
   RuntimeErrorResponse,
   RuntimeHealthResponse,
   RuntimeThemeResponse,
+  SavedRequest,
   TraceArtifact,
   TraceArtifactEntry,
   ToolCallRequest,
   ToolCallResponse,
   TraceEntry,
   UpdateConnectionProfileResponse,
+  UpdateSavedRequestResponse,
 } from "@dr-w/core";
 import {
   createMcpClient,
@@ -39,6 +44,7 @@ import {
 } from "@dr-w/mcp-client";
 import { createConnectionProfileStore } from "./connectionProfileStore.js";
 import { createHistoryStore, isTraceArtifactEntry } from "./historyStore.js";
+import { createSavedRequestStore } from "./savedRequestStore.js";
 import { createThemeStore } from "./themeStore.js";
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
@@ -48,6 +54,9 @@ const connectionProfileStore = createConnectionProfileStore(
   process.env["INSPECTOR_CONNECTIONS_PATH"] ?? ".mcp-inspector/connections.json",
 );
 const historyStore = createHistoryStore(process.env["INSPECTOR_HISTORY_PATH"]);
+const savedRequestStore = createSavedRequestStore(
+  process.env["INSPECTOR_SAVED_REQUESTS_PATH"] ?? ".mcp-inspector/saved-requests.json",
+);
 const themeStore = createThemeStore({
   requestedThemeId: process.env["INSPECTOR_THEME"],
   themesPath: process.env["INSPECTOR_THEMES_PATH"],
@@ -94,8 +103,10 @@ const toolCallResponses = new Map<string, ToolCallResponse>();
 const traceRecords = new Map<string, TraceArtifactEntry>(
   traces.map((trace) => [trace.id, { trace }]),
 );
+const savedRequests: SavedRequest[] = [];
 let nextToolCallRequestNumber = 1;
 let nextTraceNumber = traces.length + 1;
+let nextSavedRequestNumber = 1;
 const mcpClient = createMcpClient();
 const mcpConnections = new Map<string, McpConnection>();
 
@@ -136,7 +147,7 @@ function getAllowedOrigin(request: IncomingMessage) {
 function sendJson(request: IncomingMessage, response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, {
     "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
+    "Access-Control-Allow-Methods": "DELETE,GET,POST,PUT,OPTIONS",
     "Access-Control-Allow-Origin": getAllowedOrigin(request),
     "Content-Type": "application/json; charset=utf-8",
     Vary: "Origin",
@@ -235,7 +246,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readStringField(
   input: Record<string, unknown>,
-  field: keyof CreateConnectionProfileRequest,
+  field: string,
   errors: string[],
   options: { required?: boolean } = {},
 ) {
@@ -451,6 +462,132 @@ async function persistConnectionProfiles() {
   );
 }
 
+function createSavedRequestId() {
+  const id = `saved-request-${nextSavedRequestNumber.toString().padStart(3, "0")}`;
+  nextSavedRequestNumber += 1;
+
+  return id;
+}
+
+function readSavedRequestInput(
+  body: Record<string, unknown>,
+  errors: string[],
+): JsonObject | undefined {
+  if (body.input === undefined) {
+    errors.push("input is required");
+    return undefined;
+  }
+
+  if (!isJsonObject(body.input)) {
+    errors.push("input must be a JSON object");
+    return undefined;
+  }
+
+  return body.input;
+}
+
+function readCreateSavedRequestRequest(
+  body: unknown,
+  connectionId: string,
+): SavedRequest {
+  const errors: string[] = [];
+
+  if (!isRecord(body)) {
+    throw new RuntimeRequestError(
+      400,
+      "invalid_tool_input",
+      "Saved request body must be a JSON object",
+    );
+  }
+
+  const name = readStringField(body, "name", errors, { required: true });
+  const toolName = readStringField(body, "toolName", errors, { required: true });
+  const description = readStringField(body, "description", errors);
+  const input = readSavedRequestInput(body, errors);
+
+  if (errors.length > 0 || !name || !toolName || !input) {
+    throw new RuntimeRequestError(
+      400,
+      "invalid_tool_input",
+      "Invalid saved request",
+      errors,
+    );
+  }
+
+  const timestamp = new Date().toISOString();
+
+  return {
+    connectionId,
+    createdAt: timestamp,
+    description,
+    id: createSavedRequestId(),
+    input,
+    name,
+    toolName,
+    updatedAt: timestamp,
+  };
+}
+
+function readUpdateSavedRequestRequest(
+  body: unknown,
+  existingRequest: SavedRequest,
+): SavedRequest {
+  const errors: string[] = [];
+
+  if (!isRecord(body)) {
+    throw new RuntimeRequestError(
+      400,
+      "invalid_tool_input",
+      "Saved request body must be a JSON object",
+    );
+  }
+
+  const name = readStringField(body, "name", errors, { required: true });
+  const description = readStringField(body, "description", errors);
+
+  if (errors.length > 0 || !name) {
+    throw new RuntimeRequestError(
+      400,
+      "invalid_tool_input",
+      "Invalid saved request update",
+      errors,
+    );
+  }
+
+  return {
+    ...existingRequest,
+    description,
+    name,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function persistSavedRequests() {
+  await savedRequestStore.save(savedRequests);
+}
+
+function refreshSavedRequestSequence(requests: SavedRequest[]) {
+  const nextNumber =
+    requests.reduce((largestNumber, request) => {
+      const requestNumber = readNumericIdSuffix(request.id, "saved-request-");
+
+      return Math.max(largestNumber, requestNumber ?? 0);
+    }, 0) + 1;
+
+  nextSavedRequestNumber = Math.max(1, nextNumber);
+}
+
+async function loadPersistedSavedRequests() {
+  const requests = await savedRequestStore.load();
+
+  if (requests.length === 0) {
+    return;
+  }
+
+  savedRequests.splice(0, savedRequests.length, ...requests);
+  refreshSavedRequestSequence(requests);
+}
+
 function createTraceArtifact(entries: TraceArtifactEntry[]): TraceArtifact {
   return {
     entries,
@@ -507,6 +644,21 @@ function exportTraceEntries(body: Partial<ExportTraceRequest>): TraceArtifactEnt
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return isRecord(value) && Object.values(value).every(isJsonValue);
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    (Array.isArray(value) && value.every(isJsonValue)) ||
+    isJsonObject(value)
+  );
 }
 
 function isTraceArtifact(value: unknown): value is TraceArtifact {
@@ -953,6 +1105,160 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const savedRequestsMatch = url.pathname.match(/^\/connections\/([^/]+)\/saved-requests$/);
+
+  if (request.method === "GET" && savedRequestsMatch) {
+    const connectionId = decodeURIComponent(savedRequestsMatch[1] ?? "");
+    const connection = connectionProfiles.find((item) => item.id === connectionId);
+
+    if (!connection) {
+      sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
+      return;
+    }
+
+    const body: ListSavedRequestsResponse = {
+      savedRequests: savedRequests.filter((item) => item.connectionId === connectionId),
+    };
+
+    sendJson(request, response, 200, body);
+    return;
+  }
+
+  if (request.method === "POST" && savedRequestsMatch) {
+    const connectionId = decodeURIComponent(savedRequestsMatch[1] ?? "");
+    const connection = connectionProfiles.find((item) => item.id === connectionId);
+
+    if (!connection) {
+      sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
+      return;
+    }
+
+    let body: unknown;
+
+    try {
+      body = await readJsonBody(request);
+    } catch {
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
+      return;
+    }
+
+    try {
+      const savedRequest = readCreateSavedRequestRequest(body, connectionId);
+      savedRequests.unshift(savedRequest);
+
+      try {
+        await persistSavedRequests();
+      } catch (error) {
+        savedRequests.shift();
+        throw error;
+      }
+
+      const responseBody: CreateSavedRequestResponse = { savedRequest };
+
+      sendJson(request, response, 201, responseBody);
+    } catch (error) {
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, runtimeError.body);
+    }
+    return;
+  }
+
+  const savedRequestMatch = url.pathname.match(/^\/saved-requests\/([^/]+)$/);
+
+  if (request.method === "PUT" && savedRequestMatch) {
+    const savedRequestId = decodeURIComponent(savedRequestMatch[1] ?? "");
+    const savedRequestIndex = savedRequests.findIndex((item) => item.id === savedRequestId);
+
+    if (savedRequestIndex < 0) {
+      sendRuntimeError(
+        request,
+        response,
+        404,
+        "saved_request_not_found",
+        "Saved request not found",
+      );
+      return;
+    }
+
+    let body: unknown;
+
+    try {
+      body = await readJsonBody(request);
+    } catch {
+      sendRuntimeError(request, response, 400, "invalid_json", "Invalid JSON request body");
+      return;
+    }
+
+    try {
+      const existingSavedRequest = savedRequests[savedRequestIndex];
+      if (!existingSavedRequest) {
+        sendRuntimeError(
+          request,
+          response,
+          404,
+          "saved_request_not_found",
+          "Saved request not found",
+        );
+        return;
+      }
+
+      const updatedSavedRequest = readUpdateSavedRequestRequest(body, existingSavedRequest);
+      savedRequests[savedRequestIndex] = updatedSavedRequest;
+
+      try {
+        await persistSavedRequests();
+      } catch (error) {
+        savedRequests[savedRequestIndex] = existingSavedRequest;
+        throw error;
+      }
+
+      const responseBody: UpdateSavedRequestResponse = {
+        savedRequest: updatedSavedRequest,
+      };
+
+      sendJson(request, response, 200, responseBody);
+    } catch (error) {
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, runtimeError.body);
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && savedRequestMatch) {
+    const savedRequestId = decodeURIComponent(savedRequestMatch[1] ?? "");
+    const savedRequestIndex = savedRequests.findIndex((item) => item.id === savedRequestId);
+
+    if (savedRequestIndex < 0) {
+      sendRuntimeError(
+        request,
+        response,
+        404,
+        "saved_request_not_found",
+        "Saved request not found",
+      );
+      return;
+    }
+
+    const [deletedSavedRequest] = savedRequests.splice(savedRequestIndex, 1);
+
+    try {
+      await persistSavedRequests();
+    } catch (error) {
+      if (deletedSavedRequest) {
+        savedRequests.splice(savedRequestIndex, 0, deletedSavedRequest);
+      }
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, runtimeError.body);
+      return;
+    }
+
+    const responseBody: DeleteSavedRequestResponse = { deletedId: savedRequestId };
+
+    sendJson(request, response, 200, responseBody);
+    return;
+  }
+
   const toolCallMatch = url.pathname.match(
     /^\/connections\/([^/]+)\/tools\/([^/]+)\/call$/,
   );
@@ -1178,6 +1484,7 @@ const server = createServer(async (request, response) => {
 });
 
 await loadPersistedConnectionProfiles();
+await loadPersistedSavedRequests();
 await loadPersistedHistory();
 
 server.listen(port, host, () => {
@@ -1185,6 +1492,7 @@ server.listen(port, host, () => {
   console.log(
     `Inspector Runtime connection profile persistence: ${connectionProfileStore.storagePath}`,
   );
+  console.log(`Inspector Runtime saved request persistence: ${savedRequestStore.storagePath}`);
   if (historyStore.storagePath) {
     console.log(`Inspector Runtime history persistence: ${historyStore.storagePath}`);
   }

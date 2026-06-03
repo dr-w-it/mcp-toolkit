@@ -8,6 +8,9 @@ coverage/
 *.tsbuildinfo
 *.log
 .mcp-inspector/
+!apps/inspector-web/.mcp-inspector/
+!apps/inspector-web/.mcp-inspector/theme/
+!apps/inspector-web/.mcp-inspector/theme/*.json
 .env
 .env.*
 !.env.example

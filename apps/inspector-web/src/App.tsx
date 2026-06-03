@@ -14,11 +14,11 @@ import type {
   CreateConnectionProfileRequest,
   ExecuteToolCallResponse,
   JsonObject,
-  JsonValue,
   PromptDefinition,
   ResourceDefinition,
   RuntimeHealthResponse,
   RuntimeThemeResponse,
+  SavedRequest,
   TraceArtifact,
   TraceArtifactEntry,
   ToolDefinition,
@@ -39,6 +39,7 @@ interface RuntimeData {
   error: string | null;
   health: RuntimeHealthResponse | null;
   isLoading: boolean;
+  savedRequests: SavedRequest[];
   source: RuntimeDataSource;
   theme: RuntimeThemeResponse | null;
   traces: TraceEntry[];
@@ -69,6 +70,11 @@ interface RuntimeDisplayError {
   details?: string[];
   message: string;
   status?: number;
+}
+
+interface SavedRequestEditDraft {
+  description: string;
+  name: string;
 }
 
 const transportOptions: { label: string; value: ConnectionTransport }[] = [
@@ -164,6 +170,10 @@ function formatJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function formatConnectionCommand(connection: ConnectionProfile | undefined) {
   if (!connection) {
     return "No runtime target selected";
@@ -250,6 +260,7 @@ export function App() {
     error: null,
     health: null,
     isLoading: true,
+    savedRequests: [],
     source: "mock",
     theme: null,
     traces: traceEntries,
@@ -287,6 +298,16 @@ export function App() {
   const [toolExecutionError, setToolExecutionError] = useState<RuntimeDisplayError | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isReplayingTool, setIsReplayingTool] = useState(false);
+  const [newSavedRequestName, setNewSavedRequestName] = useState("");
+  const [newSavedRequestDescription, setNewSavedRequestDescription] = useState("");
+  const [savedRequestError, setSavedRequestError] = useState<string | null>(null);
+  const [isSavingRequest, setIsSavingRequest] = useState(false);
+  const [executingSavedRequestId, setExecutingSavedRequestId] = useState<string | null>(null);
+  const [updatingSavedRequestId, setUpdatingSavedRequestId] = useState<string | null>(null);
+  const [deletingSavedRequestId, setDeletingSavedRequestId] = useState<string | null>(null);
+  const [savedRequestEdits, setSavedRequestEdits] = useState<
+    Record<string, SavedRequestEditDraft>
+  >({});
   const [selectedTraceEntry, setSelectedTraceEntry] = useState<TraceArtifactEntry | null>(
     null,
   );
@@ -296,6 +317,7 @@ export function App() {
   const [responseViewMode, setResponseViewMode] =
     useState<ResponseViewMode>("formatted");
   const traceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const isLoadingSavedRequestRef = useRef(false);
 
   const connections = useMemo(() => {
     const draftIds = new Set(draftConnections.map((connection) => connection.id));
@@ -524,9 +546,15 @@ export function App() {
           nextConnections.some((connection) => connection.id === preferredConnectionId)
             ? preferredConnectionId
             : nextConnections[0]?.id ?? null;
-        const capabilities = nextSelectedConnectionId
-          ? await localRuntimeClient.getCapabilities(nextSelectedConnectionId, signal)
-          : createEmptyCapabilitySummary("runtime");
+        const [capabilities, savedRequestsResponse] = nextSelectedConnectionId
+          ? await Promise.all([
+              localRuntimeClient.getCapabilities(nextSelectedConnectionId, signal),
+              localRuntimeClient.listSavedRequests(nextSelectedConnectionId, signal),
+            ])
+          : [
+              createEmptyCapabilitySummary("runtime"),
+              { savedRequests: [] },
+            ];
 
         setDraftConnections([]);
         selectConnectionId(nextSelectedConnectionId);
@@ -536,6 +564,7 @@ export function App() {
           error: null,
           health,
           isLoading: false,
+          savedRequests: savedRequestsResponse.savedRequests,
           source: "runtime",
           theme: themeResponse,
           traces: historyResponse.traces,
@@ -551,6 +580,7 @@ export function App() {
           error: getErrorMessage(error),
           health: null,
           isLoading: false,
+          savedRequests: [],
           source: "mock",
           theme: null,
           traces: traceEntries,
@@ -580,12 +610,20 @@ export function App() {
   }, [loadRuntimeData]);
 
   useEffect(() => {
+    if (isLoadingSavedRequestRef.current) {
+      isLoadingSavedRequestRef.current = false;
+      return;
+    }
+
     setToolInputDraft(formatJson(getDefaultToolInput(selectedTool)));
     setToolInputError(null);
     setToolExecution(null);
     setToolExecutionError(null);
     setSelectedTraceEntry(null);
     setResponseViewMode("formatted");
+    setNewSavedRequestName("");
+    setNewSavedRequestDescription("");
+    setSavedRequestError(null);
   }, [selectedTool?.name]);
 
   function resetForm() {
@@ -684,6 +722,33 @@ export function App() {
     }
   }
 
+  async function loadSavedRequests(connectionId: string) {
+    if (runtimeData.source !== "runtime") {
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        savedRequests: [],
+      }));
+      return;
+    }
+
+    try {
+      const savedRequestsResponse = await localRuntimeClient.listSavedRequests(connectionId);
+
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        savedRequests: savedRequestsResponse.savedRequests,
+      }));
+      setSavedRequestEdits({});
+      setSavedRequestError(null);
+    } catch (error) {
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        savedRequests: [],
+      }));
+      setSavedRequestError(getErrorMessage(error));
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -727,6 +792,7 @@ export function App() {
                 : connection,
             ),
             error: null,
+            savedRequests: [],
           }));
           closeComposer();
 
@@ -754,6 +820,7 @@ export function App() {
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities: createEmptyCapabilitySummary(updatedDraft.id),
+        savedRequests: [],
       }));
       closeComposer();
       return;
@@ -777,6 +844,7 @@ export function App() {
             ),
           ],
           error: null,
+          savedRequests: [],
         }));
         closeComposer();
 
@@ -802,6 +870,7 @@ export function App() {
     setRuntimeData((currentData) => ({
       ...currentData,
       capabilities: createEmptyCapabilitySummary(profile.id),
+      savedRequests: [],
     }));
     closeComposer();
   }
@@ -816,6 +885,7 @@ export function App() {
         capabilities: createEmptyCapabilitySummary(connectionId),
         error: null,
         isLoading: false,
+        savedRequests: [],
       }));
       return;
     }
@@ -824,7 +894,10 @@ export function App() {
       return;
     }
 
-    await loadConnectionCapabilities(connectionId);
+    await Promise.all([
+      loadConnectionCapabilities(connectionId),
+      loadSavedRequests(connectionId),
+    ]);
   }
 
   function handleSelectCapability(itemId: string) {
@@ -834,6 +907,25 @@ export function App() {
     }));
   }
 
+  function readToolInputDraft() {
+    let input: unknown;
+
+    try {
+      input = JSON.parse(toolInputDraft);
+    } catch {
+      setToolInputError("Request input must be valid JSON.");
+      return undefined;
+    }
+
+    if (!isJsonObject(input)) {
+      setToolInputError("Request input must be a JSON object.");
+      return undefined;
+    }
+
+    setToolInputError(null);
+    return input;
+  }
+
   async function handleToolCallSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -841,16 +933,12 @@ export function App() {
       return;
     }
 
-    let input: JsonValue;
+    const input = readToolInputDraft();
 
-    try {
-      input = JSON.parse(toolInputDraft) as JsonValue;
-    } catch {
-      setToolInputError("Request input must be valid JSON.");
+    if (!input) {
       return;
     }
 
-    setToolInputError(null);
     setToolExecution(null);
     setToolExecutionError(null);
     setSelectedTraceEntry(null);
@@ -875,6 +963,181 @@ export function App() {
       setToolExecutionError(getRuntimeDisplayError(error));
     } finally {
       setIsExecutingTool(false);
+    }
+  }
+
+  async function handleSaveCurrentRequest() {
+    if (runtimeData.source !== "runtime") {
+      setSavedRequestError("Saved requests require the local runtime.");
+      return;
+    }
+
+    if (!selectedConnection || !selectedTool) {
+      setSavedRequestError("Select a tool before saving a request.");
+      return;
+    }
+
+    const input = readToolInputDraft();
+
+    if (!input) {
+      return;
+    }
+
+    const name = newSavedRequestName.trim() || `${selectedTool.name} request`;
+    const description = newSavedRequestDescription.trim() || undefined;
+
+    setIsSavingRequest(true);
+    setSavedRequestError(null);
+
+    try {
+      const result = await localRuntimeClient.createSavedRequest(selectedConnection.id, {
+        description,
+        input,
+        name,
+        toolName: selectedTool.name,
+      });
+
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        savedRequests: [
+          result.savedRequest,
+          ...currentData.savedRequests.filter(
+            (savedRequest) => savedRequest.id !== result.savedRequest.id,
+          ),
+        ],
+      }));
+      setNewSavedRequestName("");
+      setNewSavedRequestDescription("");
+    } catch (error) {
+      setSavedRequestError(getErrorMessage(error));
+    } finally {
+      setIsSavingRequest(false);
+    }
+  }
+
+  function handleLoadSavedRequest(savedRequest: SavedRequest) {
+    isLoadingSavedRequestRef.current = true;
+    setActiveCapabilityTab("tools");
+    setSelectedCapabilityKeys((keys) => ({
+      ...keys,
+      tools: savedRequest.toolName,
+    }));
+    setToolInputDraft(formatJson(savedRequest.input));
+    setToolInputError(null);
+    setToolExecution(null);
+    setToolExecutionError(null);
+    setSelectedTraceEntry(null);
+    setResponseViewMode("formatted");
+    setSavedRequestError(null);
+  }
+
+  async function handleExecuteSavedRequest(savedRequest: SavedRequest) {
+    handleLoadSavedRequest(savedRequest);
+    setExecutingSavedRequestId(savedRequest.id);
+    setToolExecution(null);
+    setToolExecutionError(null);
+
+    try {
+      const result = await localRuntimeClient.callTool(
+        savedRequest.connectionId,
+        savedRequest.toolName,
+        savedRequest.input,
+      );
+
+      setToolExecution(result);
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        traces: [
+          result.trace,
+          ...currentData.traces.filter((trace) => trace.id !== result.trace.id),
+        ],
+      }));
+    } catch (error) {
+      setToolExecutionError(getRuntimeDisplayError(error));
+    } finally {
+      setExecutingSavedRequestId(null);
+    }
+  }
+
+  function updateSavedRequestDraft(
+    savedRequest: SavedRequest,
+    field: keyof SavedRequestEditDraft,
+    value: string,
+  ) {
+    setSavedRequestEdits((edits) => ({
+      ...edits,
+      [savedRequest.id]: {
+        description: edits[savedRequest.id]?.description ?? savedRequest.description ?? "",
+        name: edits[savedRequest.id]?.name ?? savedRequest.name,
+        [field]: value,
+      },
+    }));
+  }
+
+  async function handleUpdateSavedRequest(savedRequest: SavedRequest) {
+    const draft = savedRequestEdits[savedRequest.id] ?? {
+      description: savedRequest.description ?? "",
+      name: savedRequest.name,
+    };
+    const name = draft.name.trim();
+
+    if (!name) {
+      setSavedRequestError("Saved request name is required.");
+      return;
+    }
+
+    setUpdatingSavedRequestId(savedRequest.id);
+    setSavedRequestError(null);
+
+    try {
+      const result = await localRuntimeClient.updateSavedRequest(savedRequest.id, {
+        description: draft.description.trim() || undefined,
+        name,
+      });
+
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        savedRequests: currentData.savedRequests.map((item) =>
+          item.id === result.savedRequest.id ? result.savedRequest : item,
+        ),
+      }));
+      setSavedRequestEdits((edits) => {
+        const { [savedRequest.id]: _updated, ...remainingEdits } = edits;
+
+        return remainingEdits;
+      });
+    } catch (error) {
+      setSavedRequestError(getErrorMessage(error));
+    } finally {
+      setUpdatingSavedRequestId(null);
+    }
+  }
+
+  async function handleDeleteSavedRequest(savedRequest: SavedRequest) {
+    if (!window.confirm(`Delete saved request "${savedRequest.name}"?`)) {
+      return;
+    }
+
+    setDeletingSavedRequestId(savedRequest.id);
+    setSavedRequestError(null);
+
+    try {
+      await localRuntimeClient.deleteSavedRequest(savedRequest.id);
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        savedRequests: currentData.savedRequests.filter(
+          (item) => item.id !== savedRequest.id,
+        ),
+      }));
+      setSavedRequestEdits((edits) => {
+        const { [savedRequest.id]: _deleted, ...remainingEdits } = edits;
+
+        return remainingEdits;
+      });
+    } catch (error) {
+      setSavedRequestError(getErrorMessage(error));
+    } finally {
+      setDeletingSavedRequestId(null);
     }
   }
 
@@ -1485,6 +1748,133 @@ export function App() {
                 )}
               </section>
             </div>
+
+            <section className="saved-requests-panel">
+              <div className="saved-requests-header">
+                <div>
+                  <h3>Saved requests</h3>
+                  <small>{runtimeData.savedRequests.length} saved</small>
+                </div>
+                <div className="saved-request-create">
+                  <input
+                    aria-label="Saved request name"
+                    onChange={(event) => setNewSavedRequestName(event.target.value)}
+                    placeholder={selectedTool ? `${selectedTool.name} request` : "Request name"}
+                    type="text"
+                    value={newSavedRequestName}
+                  />
+                  <input
+                    aria-label="Saved request description"
+                    onChange={(event) => setNewSavedRequestDescription(event.target.value)}
+                    placeholder="Description"
+                    type="text"
+                    value={newSavedRequestDescription}
+                  />
+                  <button
+                    disabled={
+                      runtimeData.source !== "runtime" ||
+                      activeCapabilityTab !== "tools" ||
+                      !selectedTool ||
+                      !selectedConnection ||
+                      isSavingRequest
+                    }
+                    onClick={() => void handleSaveCurrentRequest()}
+                    type="button"
+                  >
+                    {isSavingRequest ? "Saving" : "Save current"}
+                  </button>
+                </div>
+              </div>
+
+              {savedRequestError ? (
+                <small className="inline-error">{savedRequestError}</small>
+              ) : null}
+
+              <div className="saved-request-list">
+                {runtimeData.savedRequests.length > 0 ? (
+                  runtimeData.savedRequests.map((savedRequest) => {
+                    const editDraft = savedRequestEdits[savedRequest.id] ?? {
+                      description: savedRequest.description ?? "",
+                      name: savedRequest.name,
+                    };
+
+                    return (
+                      <article className="saved-request-card" key={savedRequest.id}>
+                        <div className="saved-request-fields">
+                          <label className="field compact">
+                            <span>Name</span>
+                            <input
+                              onChange={(event) =>
+                                updateSavedRequestDraft(
+                                  savedRequest,
+                                  "name",
+                                  event.target.value,
+                                )
+                              }
+                              type="text"
+                              value={editDraft.name}
+                            />
+                          </label>
+                          <label className="field compact">
+                            <span>Description</span>
+                            <input
+                              onChange={(event) =>
+                                updateSavedRequestDraft(
+                                  savedRequest,
+                                  "description",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder="Optional"
+                              type="text"
+                              value={editDraft.description}
+                            />
+                          </label>
+                        </div>
+                        <div className="saved-request-meta">
+                          <span>{savedRequest.toolName}</span>
+                          <small>{savedRequest.id}</small>
+                        </div>
+                        <div className="saved-request-actions">
+                          <button
+                            onClick={() => handleLoadSavedRequest(savedRequest)}
+                            type="button"
+                          >
+                            Load
+                          </button>
+                          <button
+                            disabled={executingSavedRequestId === savedRequest.id}
+                            onClick={() => void handleExecuteSavedRequest(savedRequest)}
+                            type="button"
+                          >
+                            {executingSavedRequestId === savedRequest.id
+                              ? "Executing"
+                              : "Execute"}
+                          </button>
+                          <button
+                            disabled={updatingSavedRequestId === savedRequest.id}
+                            onClick={() => void handleUpdateSavedRequest(savedRequest)}
+                            type="button"
+                          >
+                            {updatingSavedRequestId === savedRequest.id ? "Saving" : "Rename"}
+                          </button>
+                          <button
+                            disabled={deletingSavedRequestId === savedRequest.id}
+                            onClick={() => void handleDeleteSavedRequest(savedRequest)}
+                            type="button"
+                          >
+                            {deletingSavedRequestId === savedRequest.id ? "Deleting" : "Delete"}
+                          </button>
+                        </div>
+                        <pre>{formatJson(savedRequest.input)}</pre>
+                      </article>
+                    );
+                  })
+                ) : (
+                  <div className="empty-state compact">No saved requests for this connection.</div>
+                )}
+              </div>
+            </section>
 
             <section className="response-viewer">
               <div className="response-header">

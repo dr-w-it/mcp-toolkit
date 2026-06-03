@@ -85,6 +85,45 @@ export interface ToolCallResponse {
   completedAt: string;
 }
 
+export interface SavedRequest {
+  id: string;
+  connectionId: string;
+  name: string;
+  toolName: string;
+  input: JsonObject;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSavedRequestRequest {
+  name: string;
+  toolName: string;
+  input: JsonObject;
+  description?: string;
+}
+
+export interface CreateSavedRequestResponse {
+  savedRequest: SavedRequest;
+}
+
+export interface UpdateSavedRequestRequest {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateSavedRequestResponse {
+  savedRequest: SavedRequest;
+}
+
+export interface ListSavedRequestsResponse {
+  savedRequests: SavedRequest[];
+}
+
+export interface DeleteSavedRequestResponse {
+  deletedId: string;
+}
+
 export interface ExecuteToolCallRequest {
   input: JsonValue;
 }
@@ -207,6 +246,7 @@ export type RuntimeErrorCode =
   | "mcp_tool_result_error"
   | "mcp_transport_failed"
   | "replay_request_not_found"
+  | "saved_request_not_found"
   | "schema_validation_failed"
   | "timeout"
   | "tool_not_found"

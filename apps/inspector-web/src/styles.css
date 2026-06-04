@@ -95,6 +95,18 @@ button.primary {
   font-weight: 650;
 }
 
+button.danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+button.danger-solid {
+  color: var(--color-text-strong);
+  background: var(--color-danger);
+  font-weight: 650;
+}
+
 h1,
 h2,
 h3,
@@ -482,6 +494,86 @@ textarea::placeholder {
 .timeline {
   align-content: start;
   padding-right: 2px;
+}
+
+.connection-action-error {
+  display: block;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 8, 12, 0.72);
+  padding: 24px;
+}
+
+.confirmation-modal {
+  display: grid;
+  gap: 20px;
+  width: min(100%, 480px);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  padding: 24px;
+}
+
+.confirmation-modal-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.warning-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-warning-border);
+  border-radius: 50%;
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.confirmation-modal .eyebrow {
+  color: var(--color-warning);
+}
+
+.confirmation-modal > p {
+  line-height: 1.55;
+}
+
+.confirmation-modal > p strong,
+.confirmation-field strong {
+  color: var(--color-text);
+}
+
+.confirmation-field {
+  gap: 9px;
+}
+
+.confirmation-field input {
+  min-height: 42px;
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+
+.confirmation-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirmation-modal-actions button {
+  min-height: 38px;
+  padding: 0 14px;
 }
 
 .connection-item {
@@ -1192,6 +1284,7 @@ pre {
   }
 
   .form-actions,
+  .confirmation-modal-actions,
   .section-header,
   .saved-request-actions,
   .target-actions {
@@ -1201,6 +1294,7 @@ pre {
   }
 
   .form-actions button,
+  .confirmation-modal-actions button,
   .saved-request-actions button,
   .section-actions,
   .target-actions button,

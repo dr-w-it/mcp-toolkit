@@ -3,6 +3,7 @@ import type {
   CreateConnectionProfileResponse,
   CreateSavedRequestRequest,
   CreateSavedRequestResponse,
+  DeleteConnectionProfileResponse,
   DeleteSavedRequestResponse,
   ExecuteToolCallResponse,
   ExportTraceRequest,
@@ -82,6 +83,16 @@ export class LocalRuntimeClient {
     return this.putJson<UpdateConnectionProfileResponse>(
       `/connections/${encodeURIComponent(connectionId)}`,
       profile,
+      signal,
+    );
+  }
+
+  deleteConnection(
+    connectionId: string,
+    signal?: AbortSignal,
+  ): Promise<DeleteConnectionProfileResponse> {
+    return this.deleteJson<DeleteConnectionProfileResponse>(
+      `/connections/${encodeURIComponent(connectionId)}`,
       signal,
     );
   }

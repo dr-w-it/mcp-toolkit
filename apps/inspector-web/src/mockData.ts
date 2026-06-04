@@ -5,6 +5,7 @@ export const connectionProfiles: ConnectionProfile[] = [
     id: "local-filesystem",
     name: "Local filesystem server",
     transport: "stdio",
+    isBuiltIn: true,
     command: "npx @modelcontextprotocol/server-filesystem ./",
     createdAt: "2026-05-26T08:30:00.000Z",
     updatedAt: "2026-05-26T08:30:00.000Z",

@@ -159,7 +159,7 @@ Implemented so far:
 - runtime status handling with fallback development data when the local runtime
   is unavailable
 - runtime-backed persisted connection profiles for creating, listing,
-  selecting, and editing `stdio`, HTTP, and SSE shapes
+  selecting, editing, and deleting `stdio`, HTTP, and SSE shapes
 - local runtime handling for profile env vars and auth headers without echoing
   secret values in list responses
 - runtime-backed saved requests scoped to each connection for saving, loading,

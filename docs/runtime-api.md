@@ -147,6 +147,7 @@ Response type: `ListConnectionsResponse`
       "id": "local-filesystem",
       "name": "Local filesystem server",
       "transport": "stdio",
+      "isBuiltIn": true,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
       "createdAt": "2026-05-26T08:30:00.000Z",
@@ -159,7 +160,8 @@ Response type: `ListConnectionsResponse`
 Connection profiles may include `args`, `url`, `headers`, and `env` when the
 transport needs them. Local mode should keep these values local to the runtime.
 List responses omit `headers` and `env` values so secrets are not echoed back to
-the browser after profile creation.
+the browser after profile creation. The runtime marks built-in development
+profiles with `isBuiltIn: true`.
 
 Connection profile metadata is persisted locally by default so profile ids stay
 stable across Inspector Runtime restarts. The default storage file is
@@ -250,6 +252,23 @@ Response type: `UpdateConnectionProfileResponse`
 Updating a profile keeps its `id` stable and closes any currently open MCP
 connection for that profile so the next capability discovery or tool call uses
 the updated settings.
+
+```http
+DELETE /connections/:connectionId
+```
+
+Response type: `DeleteConnectionProfileResponse`
+
+```json
+{
+  "deletedId": "remote-github"
+}
+```
+
+Deleting a user-created profile closes its active MCP connection and removes
+the profile metadata, saved requests, history traces, and replay data associated
+with that connection from local runtime storage. Built-in profiles cannot be
+deleted.
 
 ## Capabilities
 

@@ -5,6 +5,7 @@ import type {
   CreateConnectionProfileRequest,
   CreateConnectionProfileResponse,
   CreateSavedRequestResponse,
+  DeleteConnectionProfileResponse,
   DeleteSavedRequestResponse,
   ExecuteToolCallRequest,
   ExecuteToolCallResponse,
@@ -218,7 +219,10 @@ async function getMcpConnection(profile: ConnectionProfile): Promise<McpConnecti
 function toPublicConnectionProfile(profile: ConnectionProfile): ConnectionProfile {
   const { env: _env, headers: _headers, ...publicProfile } = profile;
 
-  return publicProfile;
+  return {
+    ...publicProfile,
+    isBuiltIn: builtInConnectionProfileIds.has(profile.id),
+  };
 }
 
 function createConnectionId(name: string) {
@@ -626,6 +630,41 @@ function getTraceRecord(trace: TraceEntry): TraceArtifactEntry {
 
 async function persistHistory() {
   await historyStore.save(traces.map(getTraceRecord));
+}
+
+function pruneConnectionData(connectionId: string) {
+  const removedRequestIds = new Set(
+    [...toolCallRequests.values()]
+      .filter((request) => request.connectionId === connectionId)
+      .map((request) => request.id),
+  );
+
+  connectionProfiles.splice(
+    0,
+    connectionProfiles.length,
+    ...connectionProfiles.filter((profile) => profile.id !== connectionId),
+  );
+  savedRequests.splice(
+    0,
+    savedRequests.length,
+    ...savedRequests.filter((savedRequest) => savedRequest.connectionId !== connectionId),
+  );
+  traces.splice(
+    0,
+    traces.length,
+    ...traces.filter((trace) => trace.connectionId !== connectionId),
+  );
+
+  for (const [traceId, entry] of traceRecords) {
+    if (entry.trace.connectionId === connectionId) {
+      traceRecords.delete(traceId);
+    }
+  }
+
+  for (const requestId of removedRequestIds) {
+    toolCallRequests.delete(requestId);
+    toolCallResponses.delete(requestId);
+  }
 }
 
 function exportTraceEntries(body: Partial<ExportTraceRequest>): TraceArtifactEntry[] {
@@ -1075,6 +1114,80 @@ const server = createServer(async (request, response) => {
       const runtimeError = getRuntimeError(error);
       sendJson(request, response, runtimeError.status, runtimeError.body);
     }
+    return;
+  }
+
+  if (request.method === "DELETE" && connectionMatch) {
+    const connectionId = decodeURIComponent(connectionMatch[1] ?? "");
+    const connection = connectionProfiles.find((item) => item.id === connectionId);
+
+    if (!connection) {
+      sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
+      return;
+    }
+
+    if (builtInConnectionProfileIds.has(connectionId)) {
+      sendRuntimeError(
+        request,
+        response,
+        400,
+        "invalid_connection_profile",
+        "Built-in connection profiles cannot be deleted",
+      );
+      return;
+    }
+
+    const previousConnectionProfiles = [...connectionProfiles];
+    const previousSavedRequests = [...savedRequests];
+    const previousTraces = [...traces];
+    const previousTraceRecords = new Map(traceRecords);
+    const previousToolCallRequests = new Map(toolCallRequests);
+    const previousToolCallResponses = new Map(toolCallResponses);
+
+    pruneConnectionData(connectionId);
+
+    try {
+      await Promise.all([
+        persistConnectionProfiles(),
+        persistSavedRequests(),
+        persistHistory(),
+      ]);
+    } catch (error) {
+      connectionProfiles.splice(0, connectionProfiles.length, ...previousConnectionProfiles);
+      savedRequests.splice(0, savedRequests.length, ...previousSavedRequests);
+      traces.splice(0, traces.length, ...previousTraces);
+      traceRecords.clear();
+      toolCallRequests.clear();
+      toolCallResponses.clear();
+
+      for (const [traceId, entry] of previousTraceRecords) {
+        traceRecords.set(traceId, entry);
+      }
+
+      for (const [requestId, toolCallRequest] of previousToolCallRequests) {
+        toolCallRequests.set(requestId, toolCallRequest);
+      }
+
+      for (const [requestId, toolCallResponse] of previousToolCallResponses) {
+        toolCallResponses.set(requestId, toolCallResponse);
+      }
+
+      await Promise.allSettled([
+        persistConnectionProfiles(),
+        persistSavedRequests(),
+        persistHistory(),
+      ]);
+
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, runtimeError.body);
+      return;
+    }
+
+    closeMcpConnection(connectionId);
+
+    const responseBody: DeleteConnectionProfileResponse = { deletedId: connectionId };
+
+    sendJson(request, response, 200, responseBody);
     return;
   }
 

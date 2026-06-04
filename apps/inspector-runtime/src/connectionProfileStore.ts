@@ -83,7 +83,12 @@ function createPersistedConnectionProfilesFile(
 }
 
 function toPersistedConnectionProfile(profile: ConnectionProfile): ConnectionProfile {
-  const { env: _env, headers: _headers, ...persistedProfile } = profile;
+  const {
+    env: _env,
+    headers: _headers,
+    isBuiltIn: _isBuiltIn,
+    ...persistedProfile
+  } = profile;
 
   return persistedProfile;
 }

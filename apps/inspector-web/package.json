@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@dr-w/core": "0.0.0",
+    "lucide-react": "^1.17.0",
     "react": "latest",
     "react-dom": "latest",
     "vite": "latest"

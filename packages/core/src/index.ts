@@ -4,6 +4,7 @@ export interface ConnectionProfile {
   id: string;
   name: string;
   transport: ConnectionTransport;
+  isBuiltIn?: boolean;
   command?: string;
   args?: string[];
   url?: string;
@@ -31,6 +32,10 @@ export type UpdateConnectionProfileRequest = CreateConnectionProfileRequest;
 
 export interface UpdateConnectionProfileResponse {
   connection: ConnectionProfile;
+}
+
+export interface DeleteConnectionProfileResponse {
+  deletedId: string;
 }
 
 export interface ToolDefinition {

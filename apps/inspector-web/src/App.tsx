@@ -6,7 +6,9 @@ import {
   useState,
   type ChangeEvent,
   type FormEvent,
+  type ReactNode,
 } from "react";
+import { TriangleAlert } from "lucide-react";
 import type {
   CapabilitySummary,
   ConnectionProfile,
@@ -75,6 +77,20 @@ interface RuntimeDisplayError {
 interface SavedRequestEditDraft {
   description: string;
   name: string;
+}
+
+interface ConfirmationModalProps {
+  canConfirm?: boolean;
+  confirmLabel: string;
+  description: ReactNode;
+  error?: string | null;
+  isPending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  title: string;
+  confirmationLabel?: ReactNode;
+  confirmationValue?: string;
+  onConfirmationChange?: (value: string) => void;
 }
 
 const transportOptions: { label: string; value: ConnectionTransport }[] = [
@@ -249,6 +265,81 @@ function applyTheme(theme: RuntimeThemeResponse) {
   document.documentElement.dataset.theme = theme.activeTheme.id;
 }
 
+function ConfirmationModal({
+  canConfirm = true,
+  confirmLabel,
+  confirmationLabel,
+  confirmationValue,
+  description,
+  error,
+  isPending,
+  onCancel,
+  onConfirm,
+  onConfirmationChange,
+  title,
+}: ConfirmationModalProps) {
+  const modalId = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  return (
+    <div className="modal-backdrop">
+      <section
+        aria-describedby={`${modalId}-description`}
+        aria-labelledby={`${modalId}-title`}
+        aria-modal="true"
+        className="confirmation-modal"
+        role="dialog"
+      >
+        <div className="confirmation-modal-warning">
+          <span className="warning-icon">
+            <TriangleAlert aria-hidden="true" size={24} strokeWidth={2} />
+          </span>
+          <div>
+            <p className="eyebrow">Permanent action</p>
+            <h2 id={`${modalId}-title`}>{title}</h2>
+          </div>
+        </div>
+
+        <p id={`${modalId}-description`}>{description}</p>
+
+        {confirmationLabel && onConfirmationChange ? (
+          <label className="field confirmation-field">
+            <span>{confirmationLabel}</span>
+            <input
+              autoFocus
+              disabled={isPending}
+              onChange={(event) => onConfirmationChange(event.target.value)}
+              placeholder="DELETE"
+              type="text"
+              value={confirmationValue ?? ""}
+            />
+          </label>
+        ) : null}
+
+        {error ? <small className="inline-error">{error}</small> : null}
+
+        <div className="confirmation-modal-actions">
+          <button
+            autoFocus={!confirmationLabel}
+            disabled={isPending}
+            onClick={onCancel}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="danger danger-solid"
+            disabled={!canConfirm || isPending}
+            onClick={onConfirm}
+            type="button"
+          >
+            {isPending ? "Deleting" : confirmLabel}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function App() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(
     connectionProfiles[0]?.id ?? null,
@@ -270,6 +361,11 @@ export function App() {
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [isSavingConnection, setIsSavingConnection] = useState(false);
+  const [isDeletingConnection, setIsDeletingConnection] = useState(false);
+  const [connectionActionError, setConnectionActionError] = useState<string | null>(null);
+  const [deleteConnectionCandidate, setDeleteConnectionCandidate] =
+    useState<ConnectionProfile | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [name, setName] = useState("");
   const [transport, setTransport] = useState<ConnectionTransport>("stdio");
   const [command, setCommand] = useState("");
@@ -305,6 +401,8 @@ export function App() {
   const [executingSavedRequestId, setExecutingSavedRequestId] = useState<string | null>(null);
   const [updatingSavedRequestId, setUpdatingSavedRequestId] = useState<string | null>(null);
   const [deletingSavedRequestId, setDeletingSavedRequestId] = useState<string | null>(null);
+  const [deleteSavedRequestCandidate, setDeleteSavedRequestCandidate] =
+    useState<SavedRequest | null>(null);
   const [savedRequestEdits, setSavedRequestEdits] = useState<
     Record<string, SavedRequestEditDraft>
   >({});
@@ -370,6 +468,11 @@ export function App() {
     name.trim().length > 0 &&
     ((transport === "stdio" && command.trim().length > 0) ||
       (isRemoteTransport && url.trim().length > 0));
+  const canDeleteSelectedConnection =
+    runtimeData.source === "runtime" &&
+    Boolean(selectedConnection) &&
+    !selectedConnection?.isBuiltIn &&
+    !selectedConnection?.id.startsWith("draft-");
   const targetCommand = formatConnectionCommand(selectedConnection);
 
   const detailTitle =
@@ -626,6 +729,33 @@ export function App() {
     setSavedRequestError(null);
   }, [selectedTool?.name]);
 
+  useEffect(() => {
+    if (!deleteConnectionCandidate && !deleteSavedRequestCandidate) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.key === "Escape" &&
+        !isDeletingConnection &&
+        !deletingSavedRequestId
+      ) {
+        closeDeleteModal();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    deleteConnectionCandidate,
+    deleteSavedRequestCandidate,
+    deletingSavedRequestId,
+    isDeletingConnection,
+  ]);
+
   function resetForm() {
     setName("");
     setTransport("stdio");
@@ -878,6 +1008,7 @@ export function App() {
   async function handleSelectConnection(connectionId: string) {
     selectConnectionId(connectionId);
     setCapabilityFilter("");
+    setConnectionActionError(null);
 
     if (connectionId.startsWith("draft-")) {
       setRuntimeData((currentData) => ({
@@ -898,6 +1029,97 @@ export function App() {
       loadConnectionCapabilities(connectionId),
       loadSavedRequests(connectionId),
     ]);
+  }
+
+  function openDeleteConnectionModal(connection: ConnectionProfile) {
+    setDeleteConnectionCandidate(connection);
+    setDeleteConfirmation("");
+    setConnectionActionError(null);
+  }
+
+  function closeDeleteModal() {
+    if (isDeletingConnection || deletingSavedRequestId) {
+      return;
+    }
+
+    setDeleteConnectionCandidate(null);
+    setDeleteSavedRequestCandidate(null);
+    setDeleteConfirmation("");
+    setConnectionActionError(null);
+    setSavedRequestError(null);
+  }
+
+  async function handleDeleteConnection(connection: ConnectionProfile) {
+    if (
+      runtimeData.source !== "runtime" ||
+      connection.isBuiltIn ||
+      connection.id.startsWith("draft-")
+    ) {
+      return;
+    }
+
+    if (deleteConfirmation !== "DELETE") {
+      return;
+    }
+
+    setIsDeletingConnection(true);
+    setConnectionActionError(null);
+
+    try {
+      await localRuntimeClient.deleteConnection(connection.id);
+
+      const remainingConnections = runtimeData.connections.filter(
+        (item) => item.id !== connection.id,
+      );
+      const nextConnectionId = remainingConnections[0]?.id ?? null;
+
+      selectConnectionId(nextConnectionId);
+      setCapabilityFilter("");
+      setSelectedCapabilityKeys({
+        prompts: null,
+        resources: null,
+        schemas: null,
+        tools: null,
+      });
+      setToolExecution(null);
+      setToolExecutionError(null);
+      setSelectedTraceEntry(null);
+      setSavedRequestEdits({});
+      setSavedRequestError(null);
+      setTraceTransferError(null);
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        capabilities: createEmptyCapabilitySummary(nextConnectionId ?? "runtime"),
+        connections: remainingConnections,
+        error: null,
+        isLoading: true,
+        savedRequests: [],
+        traces: currentData.traces.filter((trace) => trace.connectionId !== connection.id),
+      }));
+
+      if (editingConnectionId === connection.id) {
+        closeComposer();
+      }
+
+      setDeleteConnectionCandidate(null);
+      setDeleteConfirmation("");
+
+      if (nextConnectionId) {
+        await Promise.all([
+          loadConnectionCapabilities(nextConnectionId),
+          loadSavedRequests(nextConnectionId),
+        ]);
+      } else {
+        setRuntimeData((currentData) => ({
+          ...currentData,
+          isLoading: false,
+        }));
+      }
+    } catch (error) {
+      setConnectionActionError(getErrorMessage(error));
+    } finally {
+      setIsDeletingConnection(false);
+    }
   }
 
   function handleSelectCapability(itemId: string) {
@@ -1113,11 +1335,12 @@ export function App() {
     }
   }
 
-  async function handleDeleteSavedRequest(savedRequest: SavedRequest) {
-    if (!window.confirm(`Delete saved request "${savedRequest.name}"?`)) {
-      return;
-    }
+  function openDeleteSavedRequestModal(savedRequest: SavedRequest) {
+    setDeleteSavedRequestCandidate(savedRequest);
+    setSavedRequestError(null);
+  }
 
+  async function handleDeleteSavedRequest(savedRequest: SavedRequest) {
     setDeletingSavedRequestId(savedRequest.id);
     setSavedRequestError(null);
 
@@ -1134,6 +1357,7 @@ export function App() {
 
         return remainingEdits;
       });
+      setDeleteSavedRequestCandidate(null);
     } catch (error) {
       setSavedRequestError(getErrorMessage(error));
     } finally {
@@ -1260,7 +1484,14 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
+    <>
+      <main
+        aria-hidden={
+          deleteConnectionCandidate || deleteSavedRequestCandidate ? true : undefined
+        }
+        className="app-shell"
+        inert={deleteConnectionCandidate || deleteSavedRequestCandidate ? true : undefined}
+      >
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">dr-w</span>
@@ -1519,6 +1750,11 @@ export function App() {
               </button>
             ))}
           </div>
+          {connectionActionError ? (
+            <small className="inline-error connection-action-error">
+              {connectionActionError}
+            </small>
+          ) : null}
         </section>
 
         <section className="sidebar-section timeline-section">
@@ -1612,6 +1848,16 @@ export function App() {
             >
               Edit
             </button>
+            {canDeleteSelectedConnection && selectedConnection ? (
+              <button
+                className="danger"
+                disabled={isDeletingConnection}
+                onClick={() => openDeleteConnectionModal(selectedConnection)}
+                type="button"
+              >
+                Delete
+              </button>
+            ) : null}
             <button
               disabled={!canReplaySelectedTrace || isReplayingTool}
               onClick={() => void handleReplaySelectedTrace()}
@@ -1860,10 +2106,10 @@ export function App() {
                           </button>
                           <button
                             disabled={deletingSavedRequestId === savedRequest.id}
-                            onClick={() => void handleDeleteSavedRequest(savedRequest)}
+                            onClick={() => openDeleteSavedRequestModal(savedRequest)}
                             type="button"
                           >
-                            {deletingSavedRequestId === savedRequest.id ? "Deleting" : "Delete"}
+                            Delete
                           </button>
                         </div>
                         <pre>{formatJson(savedRequest.input)}</pre>
@@ -1920,6 +2166,50 @@ export function App() {
           </section>
         </div>
       </section>
-    </main>
+      </main>
+
+      {deleteConnectionCandidate ? (
+        <ConfirmationModal
+          canConfirm={deleteConfirmation === "DELETE"}
+          confirmLabel="Delete connection"
+          confirmationLabel={
+            <>
+              Type <strong>DELETE</strong> to confirm
+            </>
+          }
+          confirmationValue={deleteConfirmation}
+          description={
+            <>
+              Deleting <strong>{deleteConnectionCandidate.name}</strong> removes its
+              profile, saved requests, local history, and replay data. This action
+              cannot be undone.
+            </>
+          }
+          error={connectionActionError}
+          isPending={isDeletingConnection}
+          onCancel={closeDeleteModal}
+          onConfirmationChange={setDeleteConfirmation}
+          onConfirm={() => void handleDeleteConnection(deleteConnectionCandidate)}
+          title="Delete connection?"
+        />
+      ) : null}
+
+      {deleteSavedRequestCandidate ? (
+        <ConfirmationModal
+          confirmLabel="Delete saved request"
+          description={
+            <>
+              Deleting <strong>{deleteSavedRequestCandidate.name}</strong> removes
+              this saved tool request. This action cannot be undone.
+            </>
+          }
+          error={savedRequestError}
+          isPending={deletingSavedRequestId === deleteSavedRequestCandidate.id}
+          onCancel={closeDeleteModal}
+          onConfirm={() => void handleDeleteSavedRequest(deleteSavedRequestCandidate)}
+          title="Delete saved request?"
+        />
+      ) : null}
+    </>
   );
 }

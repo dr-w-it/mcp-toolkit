@@ -8,7 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { TriangleAlert } from "lucide-react";
+import { ChevronDown, TriangleAlert } from "lucide-react";
 import type {
   CapabilitySummary,
   ConnectionProfile,
@@ -414,9 +414,12 @@ export function App() {
   const [toolExecutionError, setToolExecutionError] = useState<RuntimeDisplayError | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isReplayingTool, setIsReplayingTool] = useState(false);
-  const [isSavedRequestsOpen, setIsSavedRequestsOpen] = useState(false);
-  const [newSavedRequestName, setNewSavedRequestName] = useState("");
-  const [newSavedRequestDescription, setNewSavedRequestDescription] = useState("");
+  const [isToolActionMenuOpen, setIsToolActionMenuOpen] = useState(false);
+  const [isSaveRequestComposerOpen, setIsSaveRequestComposerOpen] = useState(false);
+  const [saveRequestName, setSaveRequestName] = useState("");
+  const [saveRequestDescription, setSaveRequestDescription] = useState("");
+  const [loadedSavedRequestId, setLoadedSavedRequestId] = useState<string | null>(null);
+  const [hasLoadedSavedRequestChanges, setHasLoadedSavedRequestChanges] = useState(false);
   const [savedRequestError, setSavedRequestError] = useState<string | null>(null);
   const [isSavingRequest, setIsSavingRequest] = useState(false);
   const [executingSavedRequestId, setExecutingSavedRequestId] = useState<string | null>(null);
@@ -439,6 +442,7 @@ export function App() {
   const [responseViewMode, setResponseViewMode] =
     useState<ResponseViewMode>("formatted");
   const traceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const toolActionMenuRef = useRef<HTMLDivElement | null>(null);
   const isLoadingSavedRequestRef = useRef(false);
 
   const connections = useMemo(() => {
@@ -582,6 +586,28 @@ export function App() {
 
     return `${item.title} ${item.description} ${item.meta}`.toLowerCase().includes(query);
   });
+  const savedRequestGroups = useMemo(() => {
+    const groups = new Map<string, SavedRequest[]>();
+
+    for (const savedRequest of runtimeData.savedRequests) {
+      const requests = groups.get(savedRequest.toolName) ?? [];
+
+      requests.push(savedRequest);
+      groups.set(savedRequest.toolName, requests);
+    }
+
+    return Array.from(groups, ([toolName, requests]) => ({ requests, toolName }));
+  }, [runtimeData.savedRequests]);
+  const loadedSavedRequest = loadedSavedRequestId
+    ? runtimeData.savedRequests.find((savedRequest) => savedRequest.id === loadedSavedRequestId)
+    : undefined;
+  const canSaveCurrentRequest =
+    runtimeData.source === "runtime" &&
+    activeCapabilityTab === "tools" &&
+    Boolean(selectedTool) &&
+    Boolean(selectedConnection);
+  const saveRequestActionLabel =
+    loadedSavedRequest && hasLoadedSavedRequestChanges ? "Save changes" : "Save request";
 
   const selectedCapabilityId =
     activeCapabilityTab === "tools"
@@ -754,8 +780,12 @@ export function App() {
     setToolExecutionError(null);
     setSelectedTraceEntry(null);
     setResponseViewMode("formatted");
-    setNewSavedRequestName("");
-    setNewSavedRequestDescription("");
+    setIsToolActionMenuOpen(false);
+    setIsSaveRequestComposerOpen(false);
+    setSaveRequestName("");
+    setSaveRequestDescription("");
+    setLoadedSavedRequestId(null);
+    setHasLoadedSavedRequestChanges(false);
     setSavedRequestError(null);
   }, [selectedTool?.name]);
 
@@ -785,6 +815,39 @@ export function App() {
     deletingSavedRequestId,
     isDeletingConnection,
   ]);
+
+  useEffect(() => {
+    if (!isToolActionMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+
+      if (
+        target instanceof Node &&
+        toolActionMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setIsToolActionMenuOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsToolActionMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isToolActionMenuOpen]);
 
   function resetForm() {
     setName("");
@@ -898,6 +961,15 @@ export function App() {
         ...currentData,
         savedRequests: savedRequestsResponse.savedRequests,
       }));
+      if (
+        loadedSavedRequestId &&
+        !savedRequestsResponse.savedRequests.some(
+          (savedRequest) => savedRequest.id === loadedSavedRequestId,
+        )
+      ) {
+        setLoadedSavedRequestId(null);
+        setHasLoadedSavedRequestChanges(false);
+      }
       setSavedRequestEdits({});
       setSavedRequestError(null);
     } catch (error) {
@@ -1039,6 +1111,12 @@ export function App() {
     selectConnectionId(connectionId);
     setCapabilityFilter("");
     setConnectionActionError(null);
+    setIsToolActionMenuOpen(false);
+    setLoadedSavedRequestId(null);
+    setHasLoadedSavedRequestChanges(false);
+    setIsSaveRequestComposerOpen(false);
+    setSaveRequestName("");
+    setSaveRequestDescription("");
 
     if (connectionId.startsWith("draft-")) {
       setRuntimeData((currentData) => ({
@@ -1116,6 +1194,11 @@ export function App() {
       setSelectedTraceEntry(null);
       setSavedRequestEdits({});
       setSavedRequestError(null);
+      setLoadedSavedRequestId(null);
+      setHasLoadedSavedRequestChanges(false);
+      setIsSaveRequestComposerOpen(false);
+      setSaveRequestName("");
+      setSaveRequestDescription("");
       setTraceTransferError(null);
       setRuntimeData((currentData) => ({
         ...currentData,
@@ -1187,6 +1270,24 @@ export function App() {
     return input;
   }
 
+  function openSaveRequestComposer() {
+    if (!canSaveCurrentRequest || !selectedTool) {
+      return;
+    }
+
+    setSaveRequestName(loadedSavedRequest?.name ?? `${selectedTool.name} request`);
+    setSaveRequestDescription(loadedSavedRequest?.description ?? "");
+    setSavedRequestError(null);
+    setIsSaveRequestComposerOpen(true);
+  }
+
+  function closeSaveRequestComposer() {
+    setIsSaveRequestComposerOpen(false);
+    setSaveRequestName("");
+    setSaveRequestDescription("");
+    setSavedRequestError(null);
+  }
+
   async function handleToolCallSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -1227,7 +1328,7 @@ export function App() {
     }
   }
 
-  async function handleSaveCurrentRequest() {
+  async function handleSaveCurrentRequest(options: { updateLoaded?: boolean } = {}) {
     if (runtimeData.source !== "runtime") {
       setSavedRequestError("Saved requests require the local runtime.");
       return;
@@ -1244,13 +1345,37 @@ export function App() {
       return;
     }
 
-    const name = newSavedRequestName.trim() || `${selectedTool.name} request`;
-    const description = newSavedRequestDescription.trim() || undefined;
+    const shouldUpdateLoaded = Boolean(options.updateLoaded && loadedSavedRequest);
+    const name =
+      saveRequestName.trim() ||
+      loadedSavedRequest?.name ||
+      `${selectedTool.name} request`;
+    const description =
+      saveRequestDescription.trim() || loadedSavedRequest?.description || undefined;
 
     setIsSavingRequest(true);
     setSavedRequestError(null);
 
     try {
+      if (shouldUpdateLoaded && loadedSavedRequest) {
+        const result = await localRuntimeClient.updateSavedRequest(loadedSavedRequest.id, {
+          description,
+          input,
+          name,
+        });
+
+        setRuntimeData((currentData) => ({
+          ...currentData,
+          savedRequests: currentData.savedRequests.map((savedRequest) =>
+            savedRequest.id === result.savedRequest.id ? result.savedRequest : savedRequest,
+          ),
+        }));
+        setLoadedSavedRequestId(result.savedRequest.id);
+        setHasLoadedSavedRequestChanges(false);
+        closeSaveRequestComposer();
+        return;
+      }
+
       const result = await localRuntimeClient.createSavedRequest(selectedConnection.id, {
         description,
         input,
@@ -1267,13 +1392,25 @@ export function App() {
           ),
         ],
       }));
-      setNewSavedRequestName("");
-      setNewSavedRequestDescription("");
+      setLoadedSavedRequestId(result.savedRequest.id);
+      setHasLoadedSavedRequestChanges(false);
+      closeSaveRequestComposer();
     } catch (error) {
       setSavedRequestError(getErrorMessage(error));
     } finally {
       setIsSavingRequest(false);
     }
+  }
+
+  function handleSaveRequestAction() {
+    setIsToolActionMenuOpen(false);
+
+    if (loadedSavedRequest && hasLoadedSavedRequestChanges) {
+      void handleSaveCurrentRequest({ updateLoaded: true });
+      return;
+    }
+
+    openSaveRequestComposer();
   }
 
   function handleLoadSavedRequest(savedRequest: SavedRequest) {
@@ -1290,6 +1427,11 @@ export function App() {
     setToolExecutionError(null);
     setSelectedTraceEntry(null);
     setResponseViewMode("formatted");
+    setLoadedSavedRequestId(savedRequest.id);
+    setHasLoadedSavedRequestChanges(false);
+    setIsSaveRequestComposerOpen(false);
+    setSaveRequestName(savedRequest.name);
+    setSaveRequestDescription(savedRequest.description ?? "");
     setSavedRequestError(null);
   }
 
@@ -1369,28 +1511,21 @@ export function App() {
           item.id === result.savedRequest.id ? result.savedRequest : item,
         ),
       }));
+      if (loadedSavedRequestId === result.savedRequest.id) {
+        setSaveRequestName(result.savedRequest.name);
+        setSaveRequestDescription(result.savedRequest.description ?? "");
+      }
       setSavedRequestEdits((edits) => {
         const { [savedRequest.id]: _updated, ...remainingEdits } = edits;
 
         return remainingEdits;
       });
+      setExpandedSavedRequestId(null);
     } catch (error) {
       setSavedRequestError(getErrorMessage(error));
     } finally {
       setUpdatingSavedRequestId(null);
     }
-  }
-
-  async function handleRenameSavedRequest(savedRequest: SavedRequest) {
-    if (
-      expandedSavedRequestId !== savedRequest.id &&
-      !savedRequestEdits[savedRequest.id]
-    ) {
-      setExpandedSavedRequestId(savedRequest.id);
-      return;
-    }
-
-    await handleUpdateSavedRequest(savedRequest);
   }
 
   function openDeleteSavedRequestModal(savedRequest: SavedRequest) {
@@ -1415,6 +1550,11 @@ export function App() {
 
         return remainingEdits;
       });
+      if (loadedSavedRequestId === savedRequest.id) {
+        setLoadedSavedRequestId(null);
+        setHasLoadedSavedRequestChanges(false);
+        setIsSaveRequestComposerOpen(false);
+      }
       setDeleteSavedRequestCandidate(null);
     } catch (error) {
       setSavedRequestError(getErrorMessage(error));
@@ -1551,6 +1691,7 @@ export function App() {
         inert={deleteConnectionCandidate || deleteSavedRequestCandidate ? true : undefined}
       >
       <aside className="sidebar">
+        <div className="sidebar-scroll">
         <div className="brand">
           <span className="brand-mark">dr-w</span>
           <div>
@@ -1815,6 +1956,146 @@ export function App() {
           ) : null}
         </section>
 
+        <section className="sidebar-section saved-requests-section">
+          <div className="section-header">
+            <h2>Saved Requests</h2>
+            <small className="section-count">{runtimeData.savedRequests.length}</small>
+          </div>
+          {savedRequestError && !deleteSavedRequestCandidate ? (
+            <small className="inline-error saved-request-sidebar-error">
+              {savedRequestError}
+            </small>
+          ) : null}
+          <div className="saved-request-sidebar-list">
+            {savedRequestGroups.length > 0 ? (
+              savedRequestGroups.map((group) => (
+                <div className="saved-request-tool-group" key={group.toolName}>
+                  <div className="saved-request-group-header">
+                    <span>{group.toolName}</span>
+                    <small>{group.requests.length}</small>
+                  </div>
+                  {group.requests.map((savedRequest) => {
+                    const editDraft = savedRequestEdits[savedRequest.id] ?? {
+                      description: savedRequest.description ?? "",
+                      name: savedRequest.name,
+                    };
+                    const isExpanded = expandedSavedRequestId === savedRequest.id;
+                    const isLoaded = loadedSavedRequestId === savedRequest.id;
+                    const detailsId = `saved-request-sidebar-details-${savedRequest.id}`;
+
+                    return (
+                      <article
+                        className={`saved-request-nav-item ${isLoaded ? "loaded" : ""} ${
+                          isExpanded ? "expanded" : ""
+                        }`}
+                        key={savedRequest.id}
+                      >
+                        <button
+                          className="saved-request-nav-main"
+                          onClick={() => handleLoadSavedRequest(savedRequest)}
+                          title={savedRequest.description ?? savedRequest.id}
+                          type="button"
+                        >
+                          <span>
+                            {savedRequest.name}
+                            {isLoaded && hasLoadedSavedRequestChanges ? (
+                              <span className="dirty-indicator" aria-label="Unsaved changes" />
+                            ) : null}
+                          </span>
+                          <small>
+                            {isLoaded && hasLoadedSavedRequestChanges
+                              ? "Unsaved changes"
+                              : (savedRequest.description ?? savedRequest.id)}
+                          </small>
+                        </button>
+                        <div className="saved-request-nav-actions">
+                          <button
+                            disabled={executingSavedRequestId === savedRequest.id}
+                            onClick={() => void handleExecuteSavedRequest(savedRequest)}
+                            type="button"
+                          >
+                            {executingSavedRequestId === savedRequest.id
+                              ? "Running"
+                              : "Execute"}
+                          </button>
+                          <button
+                            aria-controls={detailsId}
+                            aria-expanded={isExpanded}
+                            onClick={() => toggleSavedRequestDetails(savedRequest.id)}
+                            type="button"
+                          >
+                            {isExpanded ? "Hide" : "Edit"}
+                          </button>
+                          <button
+                            disabled={deletingSavedRequestId === savedRequest.id}
+                            onClick={() => openDeleteSavedRequestModal(savedRequest)}
+                            type="button"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        {isExpanded ? (
+                          <div className="saved-request-inline-editor" id={detailsId}>
+                            <label className="field compact">
+                              <span>Name</span>
+                              <input
+                                onChange={(event) =>
+                                  updateSavedRequestDraft(
+                                    savedRequest,
+                                    "name",
+                                    event.target.value,
+                                  )
+                                }
+                                type="text"
+                                value={editDraft.name}
+                              />
+                            </label>
+                            <label className="field compact">
+                              <span>Description</span>
+                              <input
+                                onChange={(event) =>
+                                  updateSavedRequestDraft(
+                                    savedRequest,
+                                    "description",
+                                    event.target.value,
+                                  )
+                                }
+                                placeholder="Optional"
+                                type="text"
+                                value={editDraft.description}
+                              />
+                            </label>
+                            <div className="saved-request-editor-actions">
+                              <button
+                                disabled={updatingSavedRequestId === savedRequest.id}
+                                onClick={() => void handleUpdateSavedRequest(savedRequest)}
+                                type="button"
+                              >
+                                {updatingSavedRequestId === savedRequest.id
+                                  ? "Saving"
+                                  : "Save"}
+                              </button>
+                              <button
+                                onClick={() => toggleSavedRequestDetails(savedRequest.id)}
+                                type="button"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            <pre>{formatJson(savedRequest.input)}</pre>
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              ))
+            ) : (
+              <div className="empty-state compact">No saved requests for this connection.</div>
+            )}
+          </div>
+        </section>
+
         <section className="sidebar-section timeline-section">
           <div className="section-header">
             <h2>Timeline</h2>
@@ -1876,6 +2157,7 @@ export function App() {
           </div>
         </section>
 
+        </div>
         <div className="sidebar-footer">Local-first - no cloud</div>
       </aside>
 
@@ -2005,60 +2287,134 @@ export function App() {
 
           <section className="detail-pane">
             <form className="detail-header" onSubmit={handleToolCallSubmit}>
-              <div>
-                <p className="eyebrow">{detailEyebrow}</p>
-                <div className="detail-title-line">
-                  <h2>{detailTitle}</h2>
-                  {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
-                    <span className="deprecated-badge">Deprecated</span>
-                  ) : null}
-                </div>
-                <p>{detailDescription ?? "No description provided."}</p>
-                {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
-                  <div className="deprecated-callout">
-                    <span>
-                      This tool is marked deprecated by the server. Prefer the current
-                      replacement when possible.
-                    </span>
-                    {selectedToolReplacement ? (
-                      <button
-                        onClick={() => handleSelectTool(selectedToolReplacement.name)}
-                        type="button"
-                      >
-                        Use {selectedToolReplacement.name}
-                      </button>
+              <div className="detail-header-main">
+                <div className="detail-heading">
+                  <p className="eyebrow">{detailEyebrow}</p>
+                  <div className="detail-title-line">
+                    <h2>{detailTitle}</h2>
+                    {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
+                      <span className="deprecated-badge">Deprecated</span>
                     ) : null}
                   </div>
-                ) : null}
+                </div>
+                <div className="split-action" ref={toolActionMenuRef}>
+                  <button
+                    className="primary execute-button split-action-primary"
+                    disabled={
+                      activeCapabilityTab !== "tools" || !selectedTool || isExecutingTool
+                    }
+                    type="submit"
+                  >
+                    {isExecutingTool ? "Executing" : "Execute"}
+                  </button>
+                  <button
+                    aria-expanded={isToolActionMenuOpen}
+                    aria-haspopup="menu"
+                    aria-label="Tool request actions"
+                    className="primary split-action-menu-button"
+                    disabled={!canSaveCurrentRequest || isSavingRequest}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setIsToolActionMenuOpen((isOpen) => !isOpen);
+                      }
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      setIsToolActionMenuOpen((isOpen) => !isOpen);
+                    }}
+                    type="button"
+                  >
+                    <ChevronDown aria-hidden="true" size={16} strokeWidth={2.2} />
+                  </button>
+                  {isToolActionMenuOpen ? (
+                    <div className="split-action-menu" role="menu">
+                      <button
+                        disabled={!canSaveCurrentRequest || isSavingRequest}
+                        onClick={handleSaveRequestAction}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <span>{isSavingRequest ? "Saving" : saveRequestActionLabel}</span>
+                        <small>Current request</small>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <div className="detail-header-actions">
-                <button
-                  aria-controls="saved-requests-panel"
-                  aria-expanded={isSavedRequestsOpen}
-                  className={`saved-requests-toggle ${
-                    isSavedRequestsOpen ? "selected" : ""
-                  }`}
-                  onClick={() => setIsSavedRequestsOpen((isOpen) => !isOpen)}
-                  type="button"
-                >
-                  <span>Saved requests</span>
-                  <small>{runtimeData.savedRequests.length}</small>
-                </button>
-                <button
-                  className="primary execute-button"
-                  disabled={activeCapabilityTab !== "tools" || !selectedTool || isExecutingTool}
-                  type="submit"
-                >
-                  {isExecutingTool ? "Executing" : "Execute"}
-                </button>
+              <div className="detail-description">
+                {detailDescription ?? "No description provided."}
               </div>
+              {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
+                <div className="deprecated-callout">
+                  <span>
+                    This tool is marked deprecated by the server. Prefer the current
+                    replacement when possible.
+                  </span>
+                  {selectedToolReplacement ? (
+                    <button
+                      onClick={() => handleSelectTool(selectedToolReplacement.name)}
+                      type="button"
+                    >
+                      Use {selectedToolReplacement.name}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </form>
 
-            <div
-              className={`detail-workspace ${
-                isSavedRequestsOpen ? "saved-requests-open" : ""
-              }`}
-            >
+            {isSaveRequestComposerOpen ? (
+              <section className="save-request-composer" aria-label="Save current request">
+                <label className="field compact">
+                  <span>Name</span>
+                  <input
+                    onChange={(event) => setSaveRequestName(event.target.value)}
+                    placeholder={selectedTool ? `${selectedTool.name} request` : "Request name"}
+                    type="text"
+                    value={saveRequestName}
+                  />
+                </label>
+                <label className="field compact">
+                  <span>Description</span>
+                  <input
+                    onChange={(event) => setSaveRequestDescription(event.target.value)}
+                    placeholder="Optional"
+                    type="text"
+                    value={saveRequestDescription}
+                  />
+                </label>
+                <div className="save-request-composer-actions">
+                  <button
+                    disabled={isSavingRequest}
+                    onClick={closeSaveRequestComposer}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={!canSaveCurrentRequest || isSavingRequest}
+                    onClick={() =>
+                      void handleSaveCurrentRequest({
+                        updateLoaded: Boolean(loadedSavedRequest),
+                      })
+                    }
+                    type="button"
+                  >
+                    {isSavingRequest
+                      ? "Saving"
+                      : loadedSavedRequest
+                        ? "Save changes"
+                        : "Save request"}
+                  </button>
+                </div>
+                {savedRequestError ? (
+                  <small className="inline-error">{savedRequestError}</small>
+                ) : null}
+              </section>
+            ) : null}
+
+            <div className="detail-workspace">
               <div className="request-response-flow">
                 <section className="editor-tabs-panel">
                   <div className="editor-tab-list" role="tablist" aria-label="Tool editor">
@@ -2093,12 +2449,9 @@ export function App() {
                       id="editor-tab-schema"
                       role="tabpanel"
                     >
-                      <div className="code-panel-header">
-                        <h3>
-                          {activeCapabilityTab === "tools" ? "Input schema" : "Definition"}
-                        </h3>
-                        <span>{activeCapabilityTab === "tools" ? "readonly" : "json"}</span>
-                      </div>
+                      <span className="code-panel-corner-label">
+                        {activeCapabilityTab === "tools" ? "readonly" : "json"}
+                      </span>
                       <pre>{formatJson(detailPayload)}</pre>
                     </div>
                   ) : (
@@ -2116,7 +2469,12 @@ export function App() {
                         <label className="json-editor">
                           <span>Tool input</span>
                           <textarea
-                            onChange={(event) => setToolInputDraft(event.target.value)}
+                            onChange={(event) => {
+                              setToolInputDraft(event.target.value);
+                              if (loadedSavedRequestId) {
+                                setHasLoadedSavedRequestChanges(true);
+                              }
+                            }}
                             spellCheck={false}
                             value={toolInputDraft}
                           />
@@ -2182,175 +2540,6 @@ export function App() {
                   )}
                 </section>
               </div>
-
-              {isSavedRequestsOpen ? (
-              <section className="saved-requests-panel" id="saved-requests-panel">
-                <div className="saved-requests-header">
-                  <div>
-                    <h3>Saved requests</h3>
-                    <small>{runtimeData.savedRequests.length} saved</small>
-                  </div>
-                  <button
-                    className="ghost-button"
-                    onClick={() => setIsSavedRequestsOpen(false)}
-                    type="button"
-                  >
-                    Hide
-                  </button>
-                  <div className="saved-request-create">
-                    <input
-                      aria-label="Saved request name"
-                      onChange={(event) => setNewSavedRequestName(event.target.value)}
-                      placeholder={selectedTool ? `${selectedTool.name} request` : "Request name"}
-                      type="text"
-                      value={newSavedRequestName}
-                    />
-                    <input
-                      aria-label="Saved request description"
-                      onChange={(event) => setNewSavedRequestDescription(event.target.value)}
-                      placeholder="Description"
-                      type="text"
-                      value={newSavedRequestDescription}
-                    />
-                    <button
-                      disabled={
-                        runtimeData.source !== "runtime" ||
-                        activeCapabilityTab !== "tools" ||
-                        !selectedTool ||
-                        !selectedConnection ||
-                        isSavingRequest
-                      }
-                      onClick={() => void handleSaveCurrentRequest()}
-                      type="button"
-                    >
-                      {isSavingRequest ? "Saving" : "Save"}
-                    </button>
-                  </div>
-                </div>
-
-                {savedRequestError ? (
-                  <small className="inline-error">{savedRequestError}</small>
-                ) : null}
-
-                <div className="saved-request-list">
-                  {runtimeData.savedRequests.length > 0 ? (
-                    runtimeData.savedRequests.map((savedRequest) => {
-                      const editDraft = savedRequestEdits[savedRequest.id] ?? {
-                        description: savedRequest.description ?? "",
-                        name: savedRequest.name,
-                      };
-                      const isExpanded = expandedSavedRequestId === savedRequest.id;
-                      const detailsId = `saved-request-details-${savedRequest.id}`;
-
-                      return (
-                        <article
-                          className={`saved-request-card ${isExpanded ? "expanded" : ""}`}
-                          key={savedRequest.id}
-                        >
-                          <div className="saved-request-row">
-                            <button
-                              aria-controls={detailsId}
-                              aria-expanded={isExpanded}
-                              className="saved-request-summary"
-                              onClick={() => toggleSavedRequestDetails(savedRequest.id)}
-                              type="button"
-                            >
-                              <span>{savedRequest.name}</span>
-                              <small>{savedRequest.toolName}</small>
-                            </button>
-                            <div className="saved-request-actions">
-                              <button
-                                onClick={() => handleLoadSavedRequest(savedRequest)}
-                                type="button"
-                              >
-                                Load
-                              </button>
-                              <button
-                                disabled={executingSavedRequestId === savedRequest.id}
-                                onClick={() => void handleExecuteSavedRequest(savedRequest)}
-                                type="button"
-                              >
-                                {executingSavedRequestId === savedRequest.id
-                                  ? "Executing"
-                                  : "Execute"}
-                              </button>
-                              <button
-                                disabled={updatingSavedRequestId === savedRequest.id}
-                                onClick={() => void handleRenameSavedRequest(savedRequest)}
-                                type="button"
-                              >
-                                {updatingSavedRequestId === savedRequest.id
-                                  ? "Saving"
-                                  : "Rename"}
-                              </button>
-                              <button
-                                disabled={deletingSavedRequestId === savedRequest.id}
-                                onClick={() => openDeleteSavedRequestModal(savedRequest)}
-                                type="button"
-                              >
-                                Delete
-                              </button>
-                              <button
-                                aria-controls={detailsId}
-                                aria-expanded={isExpanded}
-                                onClick={() => toggleSavedRequestDetails(savedRequest.id)}
-                                type="button"
-                              >
-                                {isExpanded ? "Hide" : "Details"}
-                              </button>
-                            </div>
-                          </div>
-                          {isExpanded ? (
-                            <div className="saved-request-details" id={detailsId}>
-                              <div className="saved-request-fields">
-                                <label className="field compact">
-                                  <span>Name</span>
-                                  <input
-                                    onChange={(event) =>
-                                      updateSavedRequestDraft(
-                                        savedRequest,
-                                        "name",
-                                        event.target.value,
-                                      )
-                                    }
-                                    type="text"
-                                    value={editDraft.name}
-                                  />
-                                </label>
-                                <label className="field compact">
-                                  <span>Description</span>
-                                  <input
-                                    onChange={(event) =>
-                                      updateSavedRequestDraft(
-                                        savedRequest,
-                                        "description",
-                                        event.target.value,
-                                      )
-                                    }
-                                    placeholder="Optional"
-                                    type="text"
-                                    value={editDraft.description}
-                                  />
-                                </label>
-                              </div>
-                              <div className="saved-request-meta">
-                                <span>{savedRequest.toolName}</span>
-                                <small>{savedRequest.id}</small>
-                              </div>
-                              <pre>{formatJson(savedRequest.input)}</pre>
-                            </div>
-                          ) : null}
-                        </article>
-                      );
-                    })
-                  ) : (
-                    <div className="empty-state compact">
-                      No saved requests for this connection.
-                    </div>
-                  )}
-                </div>
-              </section>
-              ) : null}
             </div>
           </section>
         </div>

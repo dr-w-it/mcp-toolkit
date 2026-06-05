@@ -548,6 +548,15 @@ function readUpdateSavedRequestRequest(
 
   const name = readStringField(body, "name", errors, { required: true });
   const description = readStringField(body, "description", errors);
+  let input = existingRequest.input;
+
+  if (body.input !== undefined) {
+    if (isJsonObject(body.input)) {
+      input = body.input;
+    } else {
+      errors.push("input must be a JSON object");
+    }
+  }
 
   if (errors.length > 0 || !name) {
     throw new RuntimeRequestError(
@@ -561,6 +570,7 @@ function readUpdateSavedRequestRequest(
   return {
     ...existingRequest,
     description,
+    input,
     name,
     updatedAt: new Date().toISOString(),
   };

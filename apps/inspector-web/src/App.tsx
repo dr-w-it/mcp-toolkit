@@ -1958,15 +1958,17 @@ export function App() {
               ))}
             </div>
 
-            <label className="filter-field">
-              <span>Filter {activeCapabilityTab}</span>
-              <input
-                onChange={(event) => setCapabilityFilter(event.target.value)}
-                placeholder={`Filter ${activeCapabilityTab}...`}
-                type="search"
-                value={capabilityFilter}
-              />
-            </label>
+            <div className="capability-toolbar">
+              <label className="filter-field">
+                <span>Filter {activeCapabilityTab}</span>
+                <input
+                  onChange={(event) => setCapabilityFilter(event.target.value)}
+                  placeholder={`Filter ${activeCapabilityTab}...`}
+                  type="search"
+                  value={capabilityFilter}
+                />
+              </label>
+            </div>
 
             <div className="capability-list">
               {filteredCapabilityItems.length > 0 ? (
@@ -1977,13 +1979,13 @@ export function App() {
                     }`}
                     key={item.id}
                     onClick={() => handleSelectCapability(item.id)}
+                    title={item.description}
                     type="button"
                   >
                     <div className="capability-card-title">
                       <h3>{item.title}</h3>
                       {item.isDeprecated ? <span>Deprecated</span> : null}
                     </div>
-                    <p>{item.description}</p>
                     {item.meta ? (
                       <div className="capability-card-meta">
                         <small>{item.meta}</small>

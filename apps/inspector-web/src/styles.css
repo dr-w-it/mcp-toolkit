@@ -810,11 +810,16 @@ textarea::placeholder {
   opacity: 0.75;
 }
 
+.capability-toolbar {
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-border);
+  padding: 12px 14px;
+}
+
 .filter-field {
   display: grid;
   gap: 8px;
-  border-bottom: 1px solid var(--color-border);
-  padding: 12px 14px;
 }
 
 .filter-field span {
@@ -836,13 +841,14 @@ textarea::placeholder {
 
 .capability-card {
   display: grid;
-  gap: 8px;
+  gap: 0;
   width: 100%;
+  min-height: 38px;
   border: 0;
   border-bottom: 1px solid var(--color-border);
   border-radius: 0;
   background: transparent;
-  padding: 12px 14px;
+  padding: 8px 12px;
   text-align: left;
 }
 
@@ -864,7 +870,7 @@ textarea::placeholder {
   overflow: hidden;
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-size: 15px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -874,20 +880,12 @@ textarea::placeholder {
   flex: 0 0 auto;
   border: 1px solid var(--color-warning-border-muted);
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 1px 6px;
   color: var(--color-warning);
   background: var(--color-warning-softer);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 750;
   text-transform: uppercase;
-}
-
-.capability-card p {
-  display: -webkit-box;
-  overflow: hidden;
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .capability-card-meta {

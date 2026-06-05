@@ -18,6 +18,8 @@
     "--color-panel-muted": "#0a333e",
     "--color-schema-accent": "#d33682",
     "--color-selection": "rgba(7, 54, 66, 0.82)",
+    "--color-sidebar-background": "#00212a",
+    "--color-sidebar-border": "#1f4a52",
     "--color-success": "#859900",
     "--color-success-soft": "rgba(133, 153, 0, 0.16)",
     "--color-surface": "#143c46",
@@ -31,6 +33,7 @@
     "--color-warning-border": "rgba(181, 137, 0, 0.6)",
     "--color-warning-border-muted": "rgba(181, 137, 0, 0.44)",
     "--color-warning-soft": "rgba(181, 137, 0, 0.14)",
-    "--color-warning-softer": "rgba(181, 137, 0, 0.09)"
+    "--color-warning-softer": "rgba(181, 137, 0, 0.09)",
+    "--shadow-sidebar": "10px 0 28px rgba(0, 22, 28, 0.26)"
   }
 }

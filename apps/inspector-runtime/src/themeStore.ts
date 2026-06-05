@@ -21,6 +21,8 @@ export const defaultTheme: ThemeDefinition = {
     "--color-focus-ring": "rgba(58, 191, 248, 0.14)",
     "--color-panel": "#0f1115",
     "--color-panel-muted": "#11141a",
+    "--color-sidebar-background": "#0b0e13",
+    "--color-sidebar-border": "#343a46",
     "--color-schema-accent": "#8b7cff",
     "--color-selection": "rgba(58, 191, 248, 0.14)",
     "--color-success": "#22c55e",
@@ -37,10 +39,17 @@ export const defaultTheme: ThemeDefinition = {
     "--color-warning-border-muted": "rgba(245, 158, 11, 0.42)",
     "--color-warning-soft": "rgba(245, 158, 11, 0.08)",
     "--color-warning-softer": "rgba(245, 158, 11, 0.06)",
+    "--shadow-sidebar": "8px 0 24px rgba(0, 0, 0, 0.18)",
   },
 };
 
-const requiredTokenNames = Object.keys(defaultTheme.tokens);
+const optionalTokenFallbacks: Record<string, { token?: string; value?: string }> = {
+  "--color-sidebar-background": { token: "--color-panel-muted" },
+  "--color-sidebar-border": { token: "--color-border" },
+  "--shadow-sidebar": { value: "none" },
+};
+const tokenNames = Object.keys(defaultTheme.tokens);
+const requiredTokenNames = tokenNames.filter((tokenName) => !(tokenName in optionalTokenFallbacks));
 const inspectorWebRoot = fileURLToPath(new URL("../../inspector-web", import.meta.url));
 
 export interface ThemeStoreOptions {
@@ -174,7 +183,7 @@ function parseThemeDefinition(value: unknown): ThemeDefinition {
   const invalidTokens = Object.entries(tokens)
     .filter(
       ([tokenName, tokenValue]) =>
-        !requiredTokenNames.includes(tokenName) ||
+        !tokenNames.includes(tokenName) ||
         typeof tokenValue !== "string" ||
         tokenValue.trim().length === 0,
     )
@@ -195,9 +204,29 @@ function parseThemeDefinition(value: unknown): ThemeDefinition {
     id: value.id,
     name: value.name.trim(),
     tokens: Object.fromEntries(
-      requiredTokenNames.map((tokenName) => [tokenName, tokens[tokenName] as string]),
+      tokenNames.map((tokenName) => [tokenName, resolveThemeToken(tokenName, tokens)]),
     ),
   };
+}
+
+function resolveThemeToken(tokenName: string, tokens: Record<string, unknown>): string {
+  const tokenValue = tokens[tokenName];
+
+  if (typeof tokenValue === "string" && tokenValue.trim().length > 0) {
+    return tokenValue;
+  }
+
+  const fallback = optionalTokenFallbacks[tokenName];
+
+  if (fallback?.token) {
+    const fallbackTokenValue = tokens[fallback.token];
+
+    if (typeof fallbackTokenValue === "string" && fallbackTokenValue.trim().length > 0) {
+      return fallbackTokenValue;
+    }
+  }
+
+  return fallback?.value ?? defaultTheme.tokens[tokenName] ?? "";
 }
 
 function isThemeId(value: string) {

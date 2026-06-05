@@ -90,8 +90,11 @@ invalid custom theme, the runtime returns the internal default theme. Theme
 loading diagnostics are returned as non-fatal warnings so invalid local files do
 not prevent startup.
 
-Theme files must define a stable lowercase id, a display name, and a complete
-`tokens` object for the semantic CSS token set returned by the default theme:
+Theme files must define a stable lowercase id, a display name, and the semantic
+CSS token set returned by the default theme. Sidebar hierarchy tokens are
+recommended for custom themes; when they are omitted, the runtime derives
+sidebar background and border from the existing panel and border tokens and
+uses no sidebar elevation.
 
 ```json
 {
@@ -101,6 +104,8 @@ Theme files must define a stable lowercase id, a display name, and a complete
     "--color-background": "#000000",
     "--color-panel": "#000000",
     "--color-panel-muted": "#050505",
+    "--color-sidebar-background": "#000000",
+    "--color-sidebar-border": "#6b7280",
     "--color-surface": "#101010",
     "--color-surface-elevated": "#181818",
     "--color-border": "#6b7280",
@@ -127,7 +132,8 @@ Theme files must define a stable lowercase id, a display name, and a complete
     "--color-code-text": "#dbeafe",
     "--color-selection": "rgba(56, 189, 248, 0.22)",
     "--color-focus-ring": "rgba(56, 189, 248, 0.22)",
-    "--color-schema-accent": "#a78bfa"
+    "--color-schema-accent": "#a78bfa",
+    "--shadow-sidebar": "8px 0 24px rgba(0, 0, 0, 0.18)"
   }
 }
 ```

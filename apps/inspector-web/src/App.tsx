@@ -33,6 +33,7 @@ const runtimeBaseUrl = import.meta.env.VITE_INSPECTOR_RUNTIME_URL ?? "http://127
 
 type RuntimeDataSource = "runtime" | "mock";
 type CapabilityTab = "tools" | "resources" | "prompts" | "schemas";
+type EditorTab = "schema" | "request";
 type ResponseViewMode = "formatted" | "raw";
 
 interface RuntimeData {
@@ -63,7 +64,8 @@ interface SchemaSummary {
 interface CapabilityListItem {
   description: string;
   id: string;
-  meta: string;
+  isDeprecated?: boolean;
+  meta?: string;
   title: string;
 }
 
@@ -210,6 +212,23 @@ function getDefaultToolInput(tool: ToolDefinition | undefined): JsonObject {
   }
 
   return {};
+}
+
+function isDeprecatedTool(tool: ToolDefinition | undefined) {
+  return Boolean(tool?.description?.toLowerCase().includes("deprecated"));
+}
+
+function getDeprecatedToolReplacement(
+  tool: ToolDefinition | undefined,
+  tools: ToolDefinition[],
+) {
+  const replacementName = tool?.description?.match(/use\s+([a-zA-Z0-9_-]+)\s+instead/i)?.[1];
+
+  if (!replacementName) {
+    return undefined;
+  }
+
+  return tools.find((candidate) => candidate.name === replacementName);
 }
 
 function renderToolDetails(tool: ToolDefinition | undefined) {
@@ -371,6 +390,7 @@ export function App() {
   const [command, setCommand] = useState("");
   const [url, setUrl] = useState("");
   const [activeCapabilityTab, setActiveCapabilityTab] = useState<CapabilityTab>("tools");
+  const [activeEditorTab, setActiveEditorTab] = useState<EditorTab>("schema");
   const [capabilityFilter, setCapabilityFilter] = useState("");
   const [selectedCapabilityKeys, setSelectedCapabilityKeys] = useState<
     Record<CapabilityTab, string | null>
@@ -394,6 +414,7 @@ export function App() {
   const [toolExecutionError, setToolExecutionError] = useState<RuntimeDisplayError | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isReplayingTool, setIsReplayingTool] = useState(false);
+  const [isSavedRequestsOpen, setIsSavedRequestsOpen] = useState(false);
   const [newSavedRequestName, setNewSavedRequestName] = useState("");
   const [newSavedRequestDescription, setNewSavedRequestDescription] = useState("");
   const [savedRequestError, setSavedRequestError] = useState<string | null>(null);
@@ -401,6 +422,9 @@ export function App() {
   const [executingSavedRequestId, setExecutingSavedRequestId] = useState<string | null>(null);
   const [updatingSavedRequestId, setUpdatingSavedRequestId] = useState<string | null>(null);
   const [deletingSavedRequestId, setDeletingSavedRequestId] = useState<string | null>(null);
+  const [expandedSavedRequestId, setExpandedSavedRequestId] = useState<string | null>(
+    null,
+  );
   const [deleteSavedRequestCandidate, setDeleteSavedRequestCandidate] =
     useState<SavedRequest | null>(null);
   const [savedRequestEdits, setSavedRequestEdits] = useState<
@@ -446,6 +470,11 @@ export function App() {
     runtimeData.capabilities.tools.find(
       (tool) => tool.name === selectedCapabilityKeys.tools,
     ) ?? runtimeData.capabilities.tools[0];
+  const selectedToolIsDeprecated = isDeprecatedTool(selectedTool);
+  const selectedToolReplacement = getDeprecatedToolReplacement(
+    selectedTool,
+    runtimeData.capabilities.tools,
+  );
   const selectedResource =
     runtimeData.capabilities.resources.find(
       (resource) => resource.uri === selectedCapabilityKeys.resources,
@@ -513,7 +542,7 @@ export function App() {
       return runtimeData.capabilities.tools.map((tool) => ({
         description: tool.description ?? "No description provided.",
         id: tool.name,
-        meta: tool.inputSchema ? "input schema" : "no schema",
+        isDeprecated: isDeprecatedTool(tool),
         title: tool.name,
       }));
     }
@@ -718,6 +747,7 @@ export function App() {
       return;
     }
 
+    setActiveEditorTab("schema");
     setToolInputDraft(formatJson(getDefaultToolInput(selectedTool)));
     setToolInputError(null);
     setToolExecution(null);
@@ -1129,6 +1159,15 @@ export function App() {
     }));
   }
 
+  function handleSelectTool(toolName: string) {
+    setActiveCapabilityTab("tools");
+    setSelectedCapabilityKeys((keys) => ({
+      ...keys,
+      tools: toolName,
+    }));
+    setCapabilityFilter("");
+  }
+
   function readToolInputDraft() {
     let input: unknown;
 
@@ -1240,6 +1279,7 @@ export function App() {
   function handleLoadSavedRequest(savedRequest: SavedRequest) {
     isLoadingSavedRequestRef.current = true;
     setActiveCapabilityTab("tools");
+    setActiveEditorTab("request");
     setSelectedCapabilityKeys((keys) => ({
       ...keys,
       tools: savedRequest.toolName,
@@ -1296,6 +1336,12 @@ export function App() {
     }));
   }
 
+  function toggleSavedRequestDetails(savedRequestId: string) {
+    setExpandedSavedRequestId((currentId) =>
+      currentId === savedRequestId ? null : savedRequestId,
+    );
+  }
+
   async function handleUpdateSavedRequest(savedRequest: SavedRequest) {
     const draft = savedRequestEdits[savedRequest.id] ?? {
       description: savedRequest.description ?? "",
@@ -1333,6 +1379,18 @@ export function App() {
     } finally {
       setUpdatingSavedRequestId(null);
     }
+  }
+
+  async function handleRenameSavedRequest(savedRequest: SavedRequest) {
+    if (
+      expandedSavedRequestId !== savedRequest.id &&
+      !savedRequestEdits[savedRequest.id]
+    ) {
+      setExpandedSavedRequestId(savedRequest.id);
+      return;
+    }
+
+    await handleUpdateSavedRequest(savedRequest);
   }
 
   function openDeleteSavedRequestModal(savedRequest: SavedRequest) {
@@ -1866,7 +1924,7 @@ export function App() {
               {isReplayingTool ? "Replaying" : "Replay"}
             </button>
             <button
-              className="primary"
+              className="connect-button"
               disabled={runtimeData.isLoading}
               onClick={() => void loadRuntimeData()}
               type="button"
@@ -1921,9 +1979,16 @@ export function App() {
                     onClick={() => handleSelectCapability(item.id)}
                     type="button"
                   >
-                    <h3>{item.title}</h3>
+                    <div className="capability-card-title">
+                      <h3>{item.title}</h3>
+                      {item.isDeprecated ? <span>Deprecated</span> : null}
+                    </div>
                     <p>{item.description}</p>
-                    <small>{item.meta}</small>
+                    {item.meta ? (
+                      <div className="capability-card-meta">
+                        <small>{item.meta}</small>
+                      </div>
+                    ) : null}
                   </button>
                 ))
               ) : (
@@ -1940,229 +2005,351 @@ export function App() {
             <form className="detail-header" onSubmit={handleToolCallSubmit}>
               <div>
                 <p className="eyebrow">{detailEyebrow}</p>
-                <h2>{detailTitle}</h2>
+                <div className="detail-title-line">
+                  <h2>{detailTitle}</h2>
+                  {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
+                    <span className="deprecated-badge">Deprecated</span>
+                  ) : null}
+                </div>
                 <p>{detailDescription ?? "No description provided."}</p>
+                {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
+                  <div className="deprecated-callout">
+                    <span>
+                      This tool is marked deprecated by the server. Prefer the current
+                      replacement when possible.
+                    </span>
+                    {selectedToolReplacement ? (
+                      <button
+                        onClick={() => handleSelectTool(selectedToolReplacement.name)}
+                        type="button"
+                      >
+                        Use {selectedToolReplacement.name}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
-              <button
-                className="primary execute-button"
-                disabled={activeCapabilityTab !== "tools" || !selectedTool || isExecutingTool}
-                type="submit"
-              >
-                {isExecutingTool ? "Executing" : "Execute"}
-              </button>
+              <div className="detail-header-actions">
+                <button
+                  aria-controls="saved-requests-panel"
+                  aria-expanded={isSavedRequestsOpen}
+                  className={`saved-requests-toggle ${
+                    isSavedRequestsOpen ? "selected" : ""
+                  }`}
+                  onClick={() => setIsSavedRequestsOpen((isOpen) => !isOpen)}
+                  type="button"
+                >
+                  <span>Saved requests</span>
+                  <small>{runtimeData.savedRequests.length}</small>
+                </button>
+                <button
+                  className="primary execute-button"
+                  disabled={activeCapabilityTab !== "tools" || !selectedTool || isExecutingTool}
+                  type="submit"
+                >
+                  {isExecutingTool ? "Executing" : "Execute"}
+                </button>
+              </div>
             </form>
 
-            <div className="editor-grid">
-              <section className="code-panel">
-                <div className="code-panel-header">
-                  <h3>
-                    {activeCapabilityTab === "tools" ? "Input schema" : "Definition"}
-                  </h3>
-                  <span>{activeCapabilityTab === "tools" ? "readonly" : "json"}</span>
-                </div>
-                <pre>{formatJson(detailPayload)}</pre>
-              </section>
+            <div
+              className={`detail-workspace ${
+                isSavedRequestsOpen ? "saved-requests-open" : ""
+              }`}
+            >
+              <div className="request-response-flow">
+                <section className="editor-tabs-panel">
+                  <div className="editor-tab-list" role="tablist" aria-label="Tool editor">
+                    <button
+                      aria-controls="editor-tab-schema"
+                      aria-selected={activeEditorTab === "schema"}
+                      className={activeEditorTab === "schema" ? "selected" : ""}
+                      id="editor-tab-schema-button"
+                      onClick={() => setActiveEditorTab("schema")}
+                      role="tab"
+                      type="button"
+                    >
+                      {activeCapabilityTab === "tools" ? "Input schema" : "Definition"}
+                    </button>
+                    <button
+                      aria-controls="editor-tab-request"
+                      aria-selected={activeEditorTab === "request"}
+                      className={activeEditorTab === "request" ? "selected" : ""}
+                      id="editor-tab-request-button"
+                      onClick={() => setActiveEditorTab("request")}
+                      role="tab"
+                      type="button"
+                    >
+                      Request
+                    </button>
+                  </div>
 
-              <section className="code-panel">
-                <div className="code-panel-header">
-                  <h3>Request</h3>
-                  <span>json</span>
-                </div>
-                {activeCapabilityTab === "tools" && selectedTool ? (
-                  <label className="json-editor">
-                    <span>Tool input</span>
-                    <textarea
-                      onChange={(event) => setToolInputDraft(event.target.value)}
-                      spellCheck={false}
-                      value={toolInputDraft}
+                  {activeEditorTab === "schema" ? (
+                    <div
+                      aria-labelledby="editor-tab-schema-button"
+                      className="editor-tab-panel code-tab-panel"
+                      id="editor-tab-schema"
+                      role="tabpanel"
+                    >
+                      <div className="code-panel-header">
+                        <h3>
+                          {activeCapabilityTab === "tools" ? "Input schema" : "Definition"}
+                        </h3>
+                        <span>{activeCapabilityTab === "tools" ? "readonly" : "json"}</span>
+                      </div>
+                      <pre>{formatJson(detailPayload)}</pre>
+                    </div>
+                  ) : (
+                    <div
+                      aria-labelledby="editor-tab-request-button"
+                      className="editor-tab-panel"
+                      id="editor-tab-request"
+                      role="tabpanel"
+                    >
+                      <div className="code-panel-header">
+                        <h3>Request</h3>
+                        <span>json</span>
+                      </div>
+                      {activeCapabilityTab === "tools" && selectedTool ? (
+                        <label className="json-editor">
+                          <span>Tool input</span>
+                          <textarea
+                            onChange={(event) => setToolInputDraft(event.target.value)}
+                            spellCheck={false}
+                            value={toolInputDraft}
+                          />
+                          {toolInputError ? (
+                            <small className="inline-error">{toolInputError}</small>
+                          ) : null}
+                        </label>
+                      ) : (
+                        <pre>
+                          {formatJson({
+                            connectionId: runtimeData.capabilities.connectionId,
+                            selected: {
+                              tab: activeCapabilityTab,
+                              title: detailTitle,
+                            },
+                            source: runtimeData.source,
+                          })}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </section>
+
+                <section className="response-viewer">
+                  <div className="response-header">
+                    <div>
+                      <h3>Response</h3>
+                      <small
+                        className={
+                          responseStatus === "success"
+                            ? "response-status success"
+                            : responseStatus === "error"
+                              ? "response-status error"
+                              : "response-status"
+                        }
+                      >
+                        {responseStatus}
+                      </small>
+                    </div>
+                    <div className="view-toggle">
+                      <button
+                        className={responseViewMode === "formatted" ? "selected" : ""}
+                        onClick={() => setResponseViewMode("formatted")}
+                        type="button"
+                      >
+                        Formatted
+                      </button>
+                      <button
+                        className={responseViewMode === "raw" ? "selected" : ""}
+                        onClick={() => setResponseViewMode("raw")}
+                        type="button"
+                      >
+                        Raw
+                      </button>
+                    </div>
+                  </div>
+                  {responsePayload ? (
+                    <pre className="response-output">{formatJson(responsePayload)}</pre>
+                  ) : (
+                    <div className="response-empty">
+                      Run a tool or select a trace to inspect details here.
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              {isSavedRequestsOpen ? (
+              <section className="saved-requests-panel" id="saved-requests-panel">
+                <div className="saved-requests-header">
+                  <div>
+                    <h3>Saved requests</h3>
+                    <small>{runtimeData.savedRequests.length} saved</small>
+                  </div>
+                  <button
+                    className="ghost-button"
+                    onClick={() => setIsSavedRequestsOpen(false)}
+                    type="button"
+                  >
+                    Hide
+                  </button>
+                  <div className="saved-request-create">
+                    <input
+                      aria-label="Saved request name"
+                      onChange={(event) => setNewSavedRequestName(event.target.value)}
+                      placeholder={selectedTool ? `${selectedTool.name} request` : "Request name"}
+                      type="text"
+                      value={newSavedRequestName}
                     />
-                    {toolInputError ? (
-                      <small className="inline-error">{toolInputError}</small>
-                    ) : null}
-                  </label>
-                ) : (
-                  <pre>
-                    {formatJson({
-                      connectionId: runtimeData.capabilities.connectionId,
-                      selected: {
-                        tab: activeCapabilityTab,
-                        title: detailTitle,
-                      },
-                      source: runtimeData.source,
-                    })}
-                  </pre>
-                )}
+                    <input
+                      aria-label="Saved request description"
+                      onChange={(event) => setNewSavedRequestDescription(event.target.value)}
+                      placeholder="Description"
+                      type="text"
+                      value={newSavedRequestDescription}
+                    />
+                    <button
+                      disabled={
+                        runtimeData.source !== "runtime" ||
+                        activeCapabilityTab !== "tools" ||
+                        !selectedTool ||
+                        !selectedConnection ||
+                        isSavingRequest
+                      }
+                      onClick={() => void handleSaveCurrentRequest()}
+                      type="button"
+                    >
+                      {isSavingRequest ? "Saving" : "Save"}
+                    </button>
+                  </div>
+                </div>
+
+                {savedRequestError ? (
+                  <small className="inline-error">{savedRequestError}</small>
+                ) : null}
+
+                <div className="saved-request-list">
+                  {runtimeData.savedRequests.length > 0 ? (
+                    runtimeData.savedRequests.map((savedRequest) => {
+                      const editDraft = savedRequestEdits[savedRequest.id] ?? {
+                        description: savedRequest.description ?? "",
+                        name: savedRequest.name,
+                      };
+                      const isExpanded = expandedSavedRequestId === savedRequest.id;
+                      const detailsId = `saved-request-details-${savedRequest.id}`;
+
+                      return (
+                        <article
+                          className={`saved-request-card ${isExpanded ? "expanded" : ""}`}
+                          key={savedRequest.id}
+                        >
+                          <div className="saved-request-row">
+                            <button
+                              aria-controls={detailsId}
+                              aria-expanded={isExpanded}
+                              className="saved-request-summary"
+                              onClick={() => toggleSavedRequestDetails(savedRequest.id)}
+                              type="button"
+                            >
+                              <span>{savedRequest.name}</span>
+                              <small>{savedRequest.toolName}</small>
+                            </button>
+                            <div className="saved-request-actions">
+                              <button
+                                onClick={() => handleLoadSavedRequest(savedRequest)}
+                                type="button"
+                              >
+                                Load
+                              </button>
+                              <button
+                                disabled={executingSavedRequestId === savedRequest.id}
+                                onClick={() => void handleExecuteSavedRequest(savedRequest)}
+                                type="button"
+                              >
+                                {executingSavedRequestId === savedRequest.id
+                                  ? "Executing"
+                                  : "Execute"}
+                              </button>
+                              <button
+                                disabled={updatingSavedRequestId === savedRequest.id}
+                                onClick={() => void handleRenameSavedRequest(savedRequest)}
+                                type="button"
+                              >
+                                {updatingSavedRequestId === savedRequest.id
+                                  ? "Saving"
+                                  : "Rename"}
+                              </button>
+                              <button
+                                disabled={deletingSavedRequestId === savedRequest.id}
+                                onClick={() => openDeleteSavedRequestModal(savedRequest)}
+                                type="button"
+                              >
+                                Delete
+                              </button>
+                              <button
+                                aria-controls={detailsId}
+                                aria-expanded={isExpanded}
+                                onClick={() => toggleSavedRequestDetails(savedRequest.id)}
+                                type="button"
+                              >
+                                {isExpanded ? "Hide" : "Details"}
+                              </button>
+                            </div>
+                          </div>
+                          {isExpanded ? (
+                            <div className="saved-request-details" id={detailsId}>
+                              <div className="saved-request-fields">
+                                <label className="field compact">
+                                  <span>Name</span>
+                                  <input
+                                    onChange={(event) =>
+                                      updateSavedRequestDraft(
+                                        savedRequest,
+                                        "name",
+                                        event.target.value,
+                                      )
+                                    }
+                                    type="text"
+                                    value={editDraft.name}
+                                  />
+                                </label>
+                                <label className="field compact">
+                                  <span>Description</span>
+                                  <input
+                                    onChange={(event) =>
+                                      updateSavedRequestDraft(
+                                        savedRequest,
+                                        "description",
+                                        event.target.value,
+                                      )
+                                    }
+                                    placeholder="Optional"
+                                    type="text"
+                                    value={editDraft.description}
+                                  />
+                                </label>
+                              </div>
+                              <div className="saved-request-meta">
+                                <span>{savedRequest.toolName}</span>
+                                <small>{savedRequest.id}</small>
+                              </div>
+                              <pre>{formatJson(savedRequest.input)}</pre>
+                            </div>
+                          ) : null}
+                        </article>
+                      );
+                    })
+                  ) : (
+                    <div className="empty-state compact">
+                      No saved requests for this connection.
+                    </div>
+                  )}
+                </div>
               </section>
-            </div>
-
-            <section className="saved-requests-panel">
-              <div className="saved-requests-header">
-                <div>
-                  <h3>Saved requests</h3>
-                  <small>{runtimeData.savedRequests.length} saved</small>
-                </div>
-                <div className="saved-request-create">
-                  <input
-                    aria-label="Saved request name"
-                    onChange={(event) => setNewSavedRequestName(event.target.value)}
-                    placeholder={selectedTool ? `${selectedTool.name} request` : "Request name"}
-                    type="text"
-                    value={newSavedRequestName}
-                  />
-                  <input
-                    aria-label="Saved request description"
-                    onChange={(event) => setNewSavedRequestDescription(event.target.value)}
-                    placeholder="Description"
-                    type="text"
-                    value={newSavedRequestDescription}
-                  />
-                  <button
-                    disabled={
-                      runtimeData.source !== "runtime" ||
-                      activeCapabilityTab !== "tools" ||
-                      !selectedTool ||
-                      !selectedConnection ||
-                      isSavingRequest
-                    }
-                    onClick={() => void handleSaveCurrentRequest()}
-                    type="button"
-                  >
-                    {isSavingRequest ? "Saving" : "Save current"}
-                  </button>
-                </div>
-              </div>
-
-              {savedRequestError ? (
-                <small className="inline-error">{savedRequestError}</small>
               ) : null}
-
-              <div className="saved-request-list">
-                {runtimeData.savedRequests.length > 0 ? (
-                  runtimeData.savedRequests.map((savedRequest) => {
-                    const editDraft = savedRequestEdits[savedRequest.id] ?? {
-                      description: savedRequest.description ?? "",
-                      name: savedRequest.name,
-                    };
-
-                    return (
-                      <article className="saved-request-card" key={savedRequest.id}>
-                        <div className="saved-request-fields">
-                          <label className="field compact">
-                            <span>Name</span>
-                            <input
-                              onChange={(event) =>
-                                updateSavedRequestDraft(
-                                  savedRequest,
-                                  "name",
-                                  event.target.value,
-                                )
-                              }
-                              type="text"
-                              value={editDraft.name}
-                            />
-                          </label>
-                          <label className="field compact">
-                            <span>Description</span>
-                            <input
-                              onChange={(event) =>
-                                updateSavedRequestDraft(
-                                  savedRequest,
-                                  "description",
-                                  event.target.value,
-                                )
-                              }
-                              placeholder="Optional"
-                              type="text"
-                              value={editDraft.description}
-                            />
-                          </label>
-                        </div>
-                        <div className="saved-request-meta">
-                          <span>{savedRequest.toolName}</span>
-                          <small>{savedRequest.id}</small>
-                        </div>
-                        <div className="saved-request-actions">
-                          <button
-                            onClick={() => handleLoadSavedRequest(savedRequest)}
-                            type="button"
-                          >
-                            Load
-                          </button>
-                          <button
-                            disabled={executingSavedRequestId === savedRequest.id}
-                            onClick={() => void handleExecuteSavedRequest(savedRequest)}
-                            type="button"
-                          >
-                            {executingSavedRequestId === savedRequest.id
-                              ? "Executing"
-                              : "Execute"}
-                          </button>
-                          <button
-                            disabled={updatingSavedRequestId === savedRequest.id}
-                            onClick={() => void handleUpdateSavedRequest(savedRequest)}
-                            type="button"
-                          >
-                            {updatingSavedRequestId === savedRequest.id ? "Saving" : "Rename"}
-                          </button>
-                          <button
-                            disabled={deletingSavedRequestId === savedRequest.id}
-                            onClick={() => openDeleteSavedRequestModal(savedRequest)}
-                            type="button"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                        <pre>{formatJson(savedRequest.input)}</pre>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <div className="empty-state compact">No saved requests for this connection.</div>
-                )}
-              </div>
-            </section>
-
-            <section className="response-viewer">
-              <div className="response-header">
-                <div>
-                  <h3>Response</h3>
-                  <small
-                    className={
-                      responseStatus === "success"
-                        ? "response-status success"
-                        : responseStatus === "error"
-                          ? "response-status error"
-                          : "response-status"
-                    }
-                  >
-                    {responseStatus}
-                  </small>
-                </div>
-                <div className="view-toggle">
-                  <button
-                    className={responseViewMode === "formatted" ? "selected" : ""}
-                    onClick={() => setResponseViewMode("formatted")}
-                    type="button"
-                  >
-                    Formatted
-                  </button>
-                  <button
-                    className={responseViewMode === "raw" ? "selected" : ""}
-                    onClick={() => setResponseViewMode("raw")}
-                    type="button"
-                  >
-                    Raw
-                  </button>
-                </div>
-              </div>
-              {responsePayload ? (
-                <pre className="response-output">{formatJson(responsePayload)}</pre>
-              ) : (
-                <div className="response-empty">
-                  Run a tool or select a trace to inspect details here.
-                </div>
-              )}
-            </section>
+            </div>
           </section>
         </div>
       </section>

@@ -2186,18 +2186,21 @@ export function App() {
       <section className="workbench">
         <header className="target-bar">
           <div className="target-meta">
-            <span className="target-label">Target</span>
-            <span className={`status-dot ${runtimeTone}`} />
             <div>
-              <h2>{selectedConnection?.name ?? "No connection selected"}</h2>
-              <p>{targetCommand}</p>
+              <div className="target-title-line">
+                <span className={`status-dot ${runtimeTone}`} />
+                <h2>{selectedConnection?.name ?? "No connection selected"}</h2>
+              </div>
+              <div className="target-command-line">
+                {selectedConnection ? (
+                  <span className="transport-pill">{selectedConnection.transport}</span>
+                ) : null}
+                <p>{targetCommand}</p>
+              </div>
             </div>
           </div>
 
           <div className="target-actions">
-            {selectedConnection ? (
-              <span className="transport-pill">{selectedConnection.transport}</span>
-            ) : null}
             {runtimeTone === "fallback" ? (
               <span className="warning-pill">Fallback data</span>
             ) : null}

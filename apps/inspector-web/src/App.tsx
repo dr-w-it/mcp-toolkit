@@ -192,6 +192,25 @@ function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function getToolParameterSummary(tool: ToolDefinition | undefined) {
+  const properties = isJsonObject(tool?.inputSchema?.properties)
+    ? tool.inputSchema.properties
+    : {};
+  const required = isStringArray(tool?.inputSchema?.required)
+    ? tool.inputSchema.required
+    : [];
+  const parameterCount = Object.keys(properties).length;
+  const parameterLabel = parameterCount === 1 ? "1 parameter" : `${parameterCount} parameters`;
+  const requiredLabel =
+    required.length === 1 ? "1 required" : `${required.length} required`;
+
+  return parameterCount > 0 ? `${parameterLabel} - ${requiredLabel}` : "No parameters";
+}
+
 function formatConnectionCommand(connection: ConnectionProfile | undefined) {
   if (!connection) {
     return "No runtime target selected";
@@ -415,6 +434,7 @@ export function App() {
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isReplayingTool, setIsReplayingTool] = useState(false);
   const [isToolActionMenuOpen, setIsToolActionMenuOpen] = useState(false);
+  const [isDetailDescriptionOpen, setIsDetailDescriptionOpen] = useState(false);
   const [isSaveRequestComposerOpen, setIsSaveRequestComposerOpen] = useState(false);
   const [saveRequestName, setSaveRequestName] = useState("");
   const [saveRequestDescription, setSaveRequestDescription] = useState("");
@@ -516,14 +536,6 @@ export function App() {
         : activeCapabilityTab === "prompts"
           ? selectedPrompt?.name ?? "No prompts"
           : selectedSchema?.name ?? "No schemas";
-  const detailEyebrow =
-    activeCapabilityTab === "tools"
-      ? "Tool"
-      : activeCapabilityTab === "resources"
-        ? "Resource"
-        : activeCapabilityTab === "prompts"
-          ? "Prompt"
-          : "Schema";
   const detailDescription =
     activeCapabilityTab === "tools"
       ? selectedTool?.description
@@ -608,6 +620,15 @@ export function App() {
     Boolean(selectedConnection);
   const saveRequestActionLabel =
     loadedSavedRequest && hasLoadedSavedRequestChanges ? "Save changes" : "Save request";
+  const detailMetadata = [
+    activeCapabilityTab === "tools"
+      ? getToolParameterSummary(selectedTool)
+      : activeCapabilityTab === "resources"
+        ? selectedResource?.mimeType ?? "Resource"
+        : activeCapabilityTab === "prompts"
+          ? `${selectedPrompt?.arguments?.length ?? 0} arguments`
+          : selectedSchema?.source ?? "JSON schema",
+  ].filter(Boolean);
 
   const selectedCapabilityId =
     activeCapabilityTab === "tools"
@@ -781,6 +802,7 @@ export function App() {
     setSelectedTraceEntry(null);
     setResponseViewMode("formatted");
     setIsToolActionMenuOpen(false);
+    setIsDetailDescriptionOpen(false);
     setIsSaveRequestComposerOpen(false);
     setSaveRequestName("");
     setSaveRequestDescription("");
@@ -2289,11 +2311,31 @@ export function App() {
             <form className="detail-header" onSubmit={handleToolCallSubmit}>
               <div className="detail-header-main">
                 <div className="detail-heading">
-                  <p className="eyebrow">{detailEyebrow}</p>
                   <div className="detail-title-line">
                     <h2>{detailTitle}</h2>
                     {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
                       <span className="deprecated-badge">Deprecated</span>
+                    ) : null}
+                  </div>
+                  <div className="detail-meta-line">
+                    {detailMetadata.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                    {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
+                      <span className="deprecated-inline">
+                        Deprecated
+                        {selectedToolReplacement ? (
+                          <>
+                            {" -> "}
+                            <button
+                              onClick={() => handleSelectTool(selectedToolReplacement.name)}
+                              type="button"
+                            >
+                              {selectedToolReplacement.name}
+                            </button>
+                          </>
+                        ) : null}
+                      </span>
                     ) : null}
                   </div>
                 </div>
@@ -2342,23 +2384,18 @@ export function App() {
                   ) : null}
                 </div>
               </div>
-              <div className="detail-description">
-                {detailDescription ?? "No description provided."}
-              </div>
-              {selectedToolIsDeprecated && activeCapabilityTab === "tools" ? (
-                <div className="deprecated-callout">
-                  <span>
-                    This tool is marked deprecated by the server. Prefer the current
-                    replacement when possible.
-                  </span>
-                  {selectedToolReplacement ? (
-                    <button
-                      onClick={() => handleSelectTool(selectedToolReplacement.name)}
-                      type="button"
-                    >
-                      Use {selectedToolReplacement.name}
-                    </button>
-                  ) : null}
+              <button
+                aria-expanded={isDetailDescriptionOpen}
+                className="detail-description-toggle"
+                onClick={() => setIsDetailDescriptionOpen((isOpen) => !isOpen)}
+                type="button"
+              >
+                <ChevronDown aria-hidden="true" size={14} strokeWidth={2.2} />
+                <span>{isDetailDescriptionOpen ? "Hide details" : "Show details"}</span>
+              </button>
+              {isDetailDescriptionOpen ? (
+                <div className="detail-description">
+                  {detailDescription ?? "No description provided."}
                 </div>
               ) : null}
             </form>

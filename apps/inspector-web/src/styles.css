@@ -1645,11 +1645,25 @@ textarea::placeholder {
 
 .response-status {
   display: inline-block;
-  margin-top: 4px;
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.response-summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.response-duration {
+  color: var(--color-text-muted);
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-weight: 600;
 }
 
 .response-status.success {
@@ -1742,7 +1756,8 @@ textarea::placeholder {
 
 .json-tree {
   display: grid;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
   color: var(--color-code-text);
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -1750,10 +1765,31 @@ textarea::placeholder {
   line-height: 1.5;
 }
 
+.result-first-tree {
+  gap: 6px;
+}
+
+.result-first-tree > .json-tree-node > .json-tree-row {
+  min-height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-panel);
+}
+
+.result-first-tree > .json-tree-node > .json-tree-row:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+}
+
+.result-first-tree > .json-tree-node > .json-tree-children {
+  margin: 4px 0 2px 18px;
+}
+
 .json-tree-node,
 .json-tree-children {
   display: grid;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
 }
 
 .json-tree-children {
@@ -1764,7 +1800,8 @@ textarea::placeholder {
 
 .json-tree-row {
   display: flex;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
   min-height: 28px;
   align-items: center;
   justify-content: flex-start;
@@ -1773,6 +1810,7 @@ textarea::placeholder {
   background: transparent;
   padding: 0 6px;
   text-align: left;
+  white-space: nowrap;
 }
 
 .json-tree-row:hover:not(:disabled) {
@@ -1793,25 +1831,26 @@ textarea::placeholder {
 }
 
 .json-key {
-  min-width: 0;
-  overflow: hidden;
+  flex: 0 0 auto;
   color: var(--color-schema-accent);
   font-weight: 650;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .json-separator {
+  flex: 0 0 auto;
   color: var(--color-text-muted);
 }
 
 .json-node-summary {
+  flex: 0 0 auto;
   color: var(--color-text-muted);
 }
 
 .json-value {
-  min-width: 0;
-  overflow-wrap: anywhere;
+  flex: 0 0 auto;
+  white-space: pre;
+  word-break: normal;
 }
 
 .json-value-string {

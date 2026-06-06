@@ -26,6 +26,7 @@ import type {
   TraceArtifact,
   TraceArtifactEntry,
   ToolDefinition,
+  ToolCallResponse,
   TraceEntry,
 } from "@dr-w/core";
 import { LocalRuntimeError, localRuntimeClient } from "./localRuntimeClient";
@@ -327,6 +328,39 @@ function collectExpandedJsonPaths(value: unknown, maxDepth = Number.POSITIVE_INF
   return expandedPaths;
 }
 
+function collectDefaultResponsePaths(value: unknown) {
+  const expandedPaths = new Set<string>(["$"]);
+
+  if (!isJsonObject(value)) {
+    return expandedPaths;
+  }
+
+  const result = value.result;
+
+  if (!isJsonContainer(result)) {
+    return expandedPaths;
+  }
+
+  function visitResult(currentValue: unknown, path: string, depth: number) {
+    if (!isJsonContainer(currentValue)) {
+      return;
+    }
+
+    expandedPaths.add(path);
+
+    if (depth >= 3) {
+      return;
+    }
+
+    for (const [key, childValue] of getJsonEntries(currentValue)) {
+      visitResult(childValue, getJsonPath(path, key, currentValue), depth + 1);
+    }
+  }
+
+  visitResult(result, "$.result", 0);
+  return expandedPaths;
+}
+
 function formatJsonPrimitive(value: unknown) {
   if (value === null) {
     return "null";
@@ -361,6 +395,57 @@ function getNestedString(value: unknown, path: string[]): string | undefined {
   return typeof currentValue === "string" ? currentValue : undefined;
 }
 
+function isInformativeValue(value: unknown) {
+  return value !== undefined && value !== null;
+}
+
+function setInformativeEntry(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+) {
+  if (isInformativeValue(value)) {
+    target[key] = value;
+  }
+}
+
+function getToolResult(output: unknown) {
+  if (!isInformativeValue(output)) {
+    return {};
+  }
+
+  if (!isJsonObject(output)) {
+    return output;
+  }
+
+  const result: Record<string, unknown> = {};
+  const prioritizedKeys = new Set(["content", "structuredContent"]);
+
+  setInformativeEntry(result, "content", output.content);
+  setInformativeEntry(result, "structuredContent", output.structuredContent);
+
+  for (const [key, value] of Object.entries(output)) {
+    if (!prioritizedKeys.has(key)) {
+      setInformativeEntry(result, key, value);
+    }
+  }
+
+  return result;
+}
+
+function getToolResultText(value: unknown): string | undefined {
+  if (!isJsonObject(value) || !Array.isArray(value.content)) {
+    return undefined;
+  }
+
+  const textContent = value.content.find(
+    (item): item is JsonObject & { text: string } =>
+      isJsonObject(item) && typeof item.text === "string" && item.text.trim().length > 0,
+  );
+
+  return textContent?.text;
+}
+
 function getFirstContentText(value: unknown): string | undefined {
   if (!isJsonObject(value)) {
     return undefined;
@@ -380,6 +465,44 @@ function getFirstContentText(value: unknown): string | undefined {
   return textContent?.text;
 }
 
+function createResultFirstResponsePayload(
+  request: ExecuteToolCallResponse["request"] | TraceArtifactEntry["request"] | undefined,
+  response: ToolCallResponse | undefined,
+  trace: ExecuteToolCallResponse["trace"] | TraceArtifactEntry["trace"] | undefined,
+) {
+  const metadata: Record<string, unknown> = {};
+
+  setInformativeEntry(metadata, "request", request);
+  setInformativeEntry(metadata, "requestId", response?.requestId ?? trace?.requestId);
+  setInformativeEntry(metadata, "durationMs", response?.durationMs ?? trace?.durationMs);
+  setInformativeEntry(metadata, "connectionId", trace?.connectionId ?? request?.connectionId);
+  setInformativeEntry(metadata, "completedAt", response?.completedAt);
+  setInformativeEntry(metadata, "status", response?.status ?? trace?.status);
+  setInformativeEntry(metadata, "error", response?.error);
+  setInformativeEntry(metadata, "errorCode", response?.errorCode);
+  setInformativeEntry(metadata, "trace", trace);
+
+  return {
+    result: getToolResult(response?.output),
+    metadata,
+  };
+}
+
+function createRuntimeErrorResponsePayload(error: RuntimeDisplayError) {
+  const metadata: Record<string, unknown> = {};
+
+  setInformativeEntry(metadata, "error", error.message);
+  setInformativeEntry(metadata, "code", error.code);
+  setInformativeEntry(metadata, "details", error.details);
+  setInformativeEntry(metadata, "httpStatus", error.status);
+  setInformativeEntry(metadata, "status", "error");
+
+  return {
+    result: {},
+    metadata,
+  };
+}
+
 function getResponseErrorSummary(
   status: string,
   payload: unknown,
@@ -389,15 +512,18 @@ function getResponseErrorSummary(
   }
 
   const responsePayload = isJsonObject(payload) ? payload.response : undefined;
+  const resultPayload = isJsonObject(payload) ? payload.result : undefined;
   const detail =
+    getToolResultText(resultPayload) ??
     getFirstContentText(responsePayload) ??
     getFirstContentText(payload) ??
+    getNestedString(payload, ["metadata", "error"]) ??
     getNestedString(payload, ["response", "error"]) ??
     getNestedString(payload, ["error"]);
 
   return {
     detail,
-    title: "MCP tool returned an error result",
+    title: detail ?? "Tool call failed",
   };
 }
 
@@ -616,6 +742,41 @@ function JsonTreeViewer({ expandedPaths, onToggle, value }: Omit<JsonTreeNodePro
         onToggle={onToggle}
         path="$"
         value={value}
+      />
+    </div>
+  );
+}
+
+function ResponseJsonTreeViewer({
+  expandedPaths,
+  onToggle,
+  value,
+}: Omit<JsonTreeNodeProps, "path">) {
+  if (!isJsonObject(value) || (!("result" in value) && !("metadata" in value))) {
+    return (
+      <JsonTreeViewer
+        expandedPaths={expandedPaths}
+        onToggle={onToggle}
+        value={value}
+      />
+    );
+  }
+
+  return (
+    <div className="json-tree result-first-tree" role="tree">
+      <JsonTreeNode
+        expandedPaths={expandedPaths}
+        name="Result"
+        onToggle={onToggle}
+        path="$.result"
+        value={value.result}
+      />
+      <JsonTreeNode
+        expandedPaths={expandedPaths}
+        name="Metadata"
+        onToggle={onToggle}
+        path="$.metadata"
+        value={value.metadata}
       />
     </div>
   );
@@ -971,33 +1132,18 @@ export function App() {
           response: selectedTraceEntry.response?.rawResponse,
           trace: selectedTraceEntry.trace,
         }
-      : {
-          request: selectedTraceEntry.request,
-          response: selectedTraceEntry.response
-            ? {
-                durationMs: selectedTraceEntry.response.durationMs,
-                error: selectedTraceEntry.response.error,
-                errorCode: selectedTraceEntry.response.errorCode,
-                output: selectedTraceEntry.response.output,
-                requestId: selectedTraceEntry.response.requestId,
-                status: selectedTraceEntry.response.status,
-              }
-            : undefined,
-          trace: selectedTraceEntry.trace,
-        }
+      : createResultFirstResponsePayload(
+          selectedTraceEntry.request,
+          selectedTraceEntry.response,
+          selectedTraceEntry.trace,
+        )
     : null;
   const selectedReplayRequestId =
     selectedTraceEntry?.request?.id ?? selectedTraceEntry?.trace.requestId;
   const canReplaySelectedTrace =
     runtimeData.source === "runtime" && Boolean(selectedReplayRequestId);
   const responsePayload = toolExecutionError
-    ? {
-        error: toolExecutionError.message,
-        code: toolExecutionError.code,
-        details: toolExecutionError.details,
-        httpStatus: toolExecutionError.status,
-        status: "error",
-      }
+    ? createRuntimeErrorResponsePayload(toolExecutionError)
     : toolExecution
       ? responseViewMode === "raw"
         ? {
@@ -1005,23 +1151,20 @@ export function App() {
             response: toolExecution.response.rawResponse,
             trace: toolExecution.trace,
           }
-        : {
-            request: toolExecution.request,
-            response: {
-              durationMs: toolExecution.response.durationMs,
-              error: toolExecution.response.error,
-              errorCode: toolExecution.response.errorCode,
-              output: toolExecution.response.output,
-              requestId: toolExecution.response.requestId,
-              status: toolExecution.response.status,
-            },
-            trace: toolExecution.trace,
-          }
+        : createResultFirstResponsePayload(
+            toolExecution.request,
+            toolExecution.response,
+            toolExecution.trace,
+          )
       : selectedTracePayload;
   const responseStatus =
     toolExecution?.response.status ??
     selectedTraceEntry?.trace.status ??
     (toolExecutionError ? "error" : "idle");
+  const responseDurationMs =
+    toolExecution?.response.durationMs ??
+    selectedTraceEntry?.response?.durationMs ??
+    selectedTraceEntry?.trace.durationMs;
   const responsePayloadText = responsePayload ? formatJson(responsePayload) : "";
   const responseErrorSummary = getResponseErrorSummary(responseStatus, responsePayload);
 
@@ -1137,7 +1280,7 @@ export function App() {
       return;
     }
 
-    setExpandedResponsePaths(collectExpandedJsonPaths(responsePayload, 2));
+    setExpandedResponsePaths(collectDefaultResponsePaths(responsePayload));
   }, [responsePayloadText, responseViewMode]);
 
   useEffect(() => {
@@ -3129,17 +3272,24 @@ export function App() {
                   <div className="response-header">
                     <div>
                       <h3>Response</h3>
-                      <small
-                        className={
-                          responseStatus === "success"
-                            ? "response-status success"
-                            : responseStatus === "error"
-                              ? "response-status error"
-                              : "response-status"
-                        }
-                      >
-                        {responseStatus}
-                      </small>
+                      <div className="response-summary-line">
+                        <small
+                          className={
+                            responseStatus === "success"
+                              ? "response-status success"
+                              : responseStatus === "error"
+                                ? "response-status error"
+                                : "response-status"
+                          }
+                        >
+                          {responseStatus}
+                        </small>
+                        {responseDurationMs !== undefined ? (
+                          <small className="response-duration">
+                            {responseDurationMs}ms
+                          </small>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="response-header-actions">
                       {responseCopyStatus ? (
@@ -3194,13 +3344,11 @@ export function App() {
                       {responseErrorSummary ? (
                         <section className="response-error-summary" aria-label="Error summary">
                           <strong>Error</strong>
-                          <p>{responseErrorSummary.title}</p>
                           {responseErrorSummary.detail ? (
-                            <>
-                              <strong>Details</strong>
-                              <pre>{responseErrorSummary.detail}</pre>
-                            </>
-                          ) : null}
+                            <pre>{responseErrorSummary.detail}</pre>
+                          ) : (
+                            <p>{responseErrorSummary.title}</p>
+                          )}
                         </section>
                       ) : null}
                       {responseViewMode === "formatted" ? (
@@ -3213,7 +3361,7 @@ export function App() {
                               Collapse all
                             </button>
                           </div>
-                          <JsonTreeViewer
+                          <ResponseJsonTreeViewer
                             expandedPaths={expandedResponsePaths}
                             onToggle={toggleResponseJsonPath}
                             value={responsePayload}

@@ -5,10 +5,12 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
   type FormEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, TriangleAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, TriangleAlert } from "lucide-react";
 import type {
   CapabilitySummary,
   ConnectionProfile,
@@ -98,7 +100,25 @@ interface ConfirmationModalProps {
   onConfirmationChange?: (value: string) => void;
 }
 
+interface ResponseErrorSummary {
+  detail?: string;
+  title: string;
+}
+
+interface JsonTreeNodeProps {
+  expandedPaths: Set<string>;
+  name?: string;
+  onToggle: (path: string) => void;
+  path: string;
+  value: unknown;
+}
+
 const sidebarSectionStorageKey = "mcp-inspector.sidebar.sections.v1";
+const responsePanelHeightStorageKey = "mcp-inspector.response.height.v1";
+const responsePanelDefaultHeight = 260;
+const responsePanelMinHeight = 160;
+const responsePanelMaxHeight = 720;
+const requestEditorMinHeight = 180;
 const defaultSidebarSectionState: SidebarSectionState = {
   connections: false,
   savedRequests: false,
@@ -140,6 +160,22 @@ function readSidebarSectionState(): SidebarSectionState {
     };
   } catch {
     return defaultSidebarSectionState;
+  }
+}
+
+function readResponsePanelHeight() {
+  if (typeof window === "undefined") {
+    return responsePanelDefaultHeight;
+  }
+
+  try {
+    const storedHeight = Number(window.localStorage.getItem(responsePanelHeightStorageKey));
+
+    return Number.isFinite(storedHeight)
+      ? clamp(storedHeight, responsePanelMinHeight, responsePanelMaxHeight)
+      : responsePanelDefaultHeight;
+  } catch {
+    return responsePanelDefaultHeight;
   }
 }
 
@@ -230,8 +266,160 @@ function formatJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isJsonContainer(value: unknown) {
+  return isJsonObject(value) || Array.isArray(value);
+}
+
+function getJsonEntries(value: unknown): [string, unknown][] {
+  if (Array.isArray(value)) {
+    return value.map((item, index) => [String(index), item]);
+  }
+
+  if (isJsonObject(value)) {
+    return Object.entries(value);
+  }
+
+  return [];
+}
+
+function getJsonPath(parentPath: string, key: string, parentValue: unknown) {
+  return Array.isArray(parentValue) ? `${parentPath}[${key}]` : `${parentPath}.${key}`;
+}
+
+function getJsonContainerSummary(value: unknown) {
+  const size = getJsonEntries(value).length;
+
+  if (Array.isArray(value)) {
+    return size === 1 ? "Array - 1 item" : `Array - ${size} items`;
+  }
+
+  return size === 1 ? "Object - 1 key" : `Object - ${size} keys`;
+}
+
+function collectExpandedJsonPaths(value: unknown, maxDepth = Number.POSITIVE_INFINITY) {
+  const expandedPaths = new Set<string>();
+
+  function visit(currentValue: unknown, path: string, depth: number) {
+    if (!isJsonContainer(currentValue)) {
+      return;
+    }
+
+    expandedPaths.add(path);
+
+    if (depth >= maxDepth) {
+      return;
+    }
+
+    for (const [key, childValue] of getJsonEntries(currentValue)) {
+      visit(childValue, getJsonPath(path, key, currentValue), depth + 1);
+    }
+  }
+
+  visit(value, "$", 0);
+  return expandedPaths;
+}
+
+function formatJsonPrimitive(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
+function getJsonPrimitiveClass(value: unknown) {
+  if (value === null) {
+    return "json-value-null";
+  }
+
+  return `json-value-${typeof value}`;
+}
+
+function getNestedString(value: unknown, path: string[]): string | undefined {
+  let currentValue = value;
+
+  for (const key of path) {
+    if (!isJsonObject(currentValue)) {
+      return undefined;
+    }
+
+    currentValue = currentValue[key];
+  }
+
+  return typeof currentValue === "string" ? currentValue : undefined;
+}
+
+function getFirstContentText(value: unknown): string | undefined {
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+
+  const output = value.output;
+
+  if (!isJsonObject(output) || !Array.isArray(output.content)) {
+    return undefined;
+  }
+
+  const textContent = output.content.find(
+    (item): item is JsonObject & { text: string } =>
+      isJsonObject(item) && typeof item.text === "string" && item.text.trim().length > 0,
+  );
+
+  return textContent?.text;
+}
+
+function getResponseErrorSummary(
+  status: string,
+  payload: unknown,
+): ResponseErrorSummary | undefined {
+  if (status !== "error" || !payload) {
+    return undefined;
+  }
+
+  const responsePayload = isJsonObject(payload) ? payload.response : undefined;
+  const detail =
+    getFirstContentText(responsePayload) ??
+    getFirstContentText(payload) ??
+    getNestedString(payload, ["response", "error"]) ??
+    getNestedString(payload, ["error"]);
+
+  return {
+    detail,
+    title: "MCP tool returned an error result",
+  };
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back to the textarea path when browser permissions block Clipboard API.
+    }
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.append(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  textArea.remove();
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -420,6 +608,87 @@ function ConfirmationModal({
   );
 }
 
+function JsonTreeViewer({ expandedPaths, onToggle, value }: Omit<JsonTreeNodeProps, "path">) {
+  return (
+    <div className="json-tree" role="tree">
+      <JsonTreeNode
+        expandedPaths={expandedPaths}
+        onToggle={onToggle}
+        path="$"
+        value={value}
+      />
+    </div>
+  );
+}
+
+function JsonTreeNode({
+  expandedPaths,
+  name,
+  onToggle,
+  path,
+  value,
+}: JsonTreeNodeProps) {
+  const isContainer = isJsonContainer(value);
+  const isExpanded = expandedPaths.has(path);
+  const entries = getJsonEntries(value);
+  const valueType = Array.isArray(value) ? "array" : isJsonObject(value) ? "object" : "value";
+
+  if (!isContainer) {
+    return (
+      <div className="json-tree-row leaf" role="treeitem">
+        <span className="json-tree-spacer" />
+        {name ? <span className="json-key">{name}</span> : null}
+        {name ? <span className="json-separator">:</span> : null}
+        <span className={`json-value ${getJsonPrimitiveClass(value)}`}>
+          {formatJsonPrimitive(value)}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="json-tree-node" role="treeitem" aria-expanded={isExpanded}>
+      <button
+        className="json-tree-row"
+        onClick={() => onToggle(path)}
+        type="button"
+      >
+        {isExpanded ? (
+          <ChevronDown aria-hidden="true" size={14} strokeWidth={2.2} />
+        ) : (
+          <ChevronRight aria-hidden="true" size={14} strokeWidth={2.2} />
+        )}
+        {name ? <span className="json-key">{name}</span> : null}
+        {name ? <span className="json-separator">:</span> : null}
+        <span className={`json-node-summary ${valueType}`}>
+          {getJsonContainerSummary(value)}
+        </span>
+      </button>
+      {isExpanded ? (
+        <div className="json-tree-children" role="group">
+          {entries.length > 0 ? (
+            entries.map(([key, childValue]) => (
+              <JsonTreeNode
+                expandedPaths={expandedPaths}
+                key={getJsonPath(path, key, value)}
+                name={key}
+                onToggle={onToggle}
+                path={getJsonPath(path, key, value)}
+                value={childValue}
+              />
+            ))
+          ) : (
+            <div className="json-tree-row leaf empty">
+              <span className="json-tree-spacer" />
+              <span className="json-value json-value-null">empty</span>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function App() {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(
     connectionProfiles[0]?.id ?? null,
@@ -508,9 +777,18 @@ export function App() {
   const [isImportingTrace, setIsImportingTrace] = useState(false);
   const [responseViewMode, setResponseViewMode] =
     useState<ResponseViewMode>("formatted");
+  const [responsePanelHeight, setResponsePanelHeight] = useState(() =>
+    readResponsePanelHeight(),
+  );
+  const [isResponseCollapsed, setIsResponseCollapsed] = useState(false);
+  const [expandedResponsePaths, setExpandedResponsePaths] = useState<Set<string>>(
+    () => new Set(["$"]),
+  );
+  const [responseCopyStatus, setResponseCopyStatus] = useState<string | null>(null);
   const traceFileInputRef = useRef<HTMLInputElement | null>(null);
   const toolActionMenuRef = useRef<HTMLDivElement | null>(null);
   const savedRequestActionMenuRef = useRef<HTMLDivElement | null>(null);
+  const requestResponseFlowRef = useRef<HTMLDivElement | null>(null);
   const isLoadingSavedRequestRef = useRef(false);
 
   const connections = useMemo(() => {
@@ -744,6 +1022,8 @@ export function App() {
     toolExecution?.response.status ??
     selectedTraceEntry?.trace.status ??
     (toolExecutionError ? "error" : "idle");
+  const responsePayloadText = responsePayload ? formatJson(responsePayload) : "";
+  const responseErrorSummary = getResponseErrorSummary(responseStatus, responsePayload);
 
   const selectConnectionId = useCallback((connectionId: string | null) => {
     selectedConnectionIdRef.current = connectionId;
@@ -842,6 +1122,33 @@ export function App() {
       JSON.stringify(collapsedSidebarSections),
     );
   }, [collapsedSidebarSections]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(responsePanelHeightStorageKey, String(responsePanelHeight));
+    } catch {
+      // Keep resize session-only when local preferences are unavailable.
+    }
+  }, [responsePanelHeight]);
+
+  useEffect(() => {
+    if (!responsePayload || responseViewMode !== "formatted") {
+      setExpandedResponsePaths(new Set(["$"]));
+      return;
+    }
+
+    setExpandedResponsePaths(collectExpandedJsonPaths(responsePayload, 2));
+  }, [responsePayloadText, responseViewMode]);
+
+  useEffect(() => {
+    if (!responseCopyStatus) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setResponseCopyStatus(null), 1800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [responseCopyStatus]);
 
   useEffect(() => {
     if (isLoadingSavedRequestRef.current) {
@@ -974,6 +1281,81 @@ export function App() {
       ...sections,
       [sectionId]: !sections[sectionId],
     }));
+  }
+
+  function toggleResponseJsonPath(path: string) {
+    setExpandedResponsePaths((paths) => {
+      const nextPaths = new Set(paths);
+
+      if (nextPaths.has(path)) {
+        nextPaths.delete(path);
+      } else {
+        nextPaths.add(path);
+      }
+
+      return nextPaths;
+    });
+  }
+
+  function expandFullResponse() {
+    if (!responsePayload) {
+      return;
+    }
+
+    setExpandedResponsePaths(collectExpandedJsonPaths(responsePayload));
+  }
+
+  function collapseFullResponse() {
+    setExpandedResponsePaths(new Set(["$"]));
+  }
+
+  async function handleCopyResponseJson() {
+    if (!responsePayloadText) {
+      return;
+    }
+
+    await copyTextToClipboard(responsePayloadText);
+    setResponseCopyStatus("Copied response JSON");
+  }
+
+  async function handleCopyResponseError() {
+    if (!responseErrorSummary?.detail) {
+      return;
+    }
+
+    await copyTextToClipboard(responseErrorSummary.detail);
+    setResponseCopyStatus("Copied error message");
+  }
+
+  function handleResponseResizePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+
+    const startY = event.clientY;
+    const startHeight = responsePanelHeight;
+    const flowHeight =
+      requestResponseFlowRef.current?.getBoundingClientRect().height ??
+      responsePanelMaxHeight + requestEditorMinHeight;
+    const maxHeight = clamp(
+      flowHeight - requestEditorMinHeight,
+      responsePanelMinHeight,
+      responsePanelMaxHeight,
+    );
+
+    function handlePointerMove(moveEvent: PointerEvent) {
+      const deltaY = startY - moveEvent.clientY;
+
+      setResponsePanelHeight(
+        clamp(startHeight + deltaY, responsePanelMinHeight, maxHeight),
+      );
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
   }
 
   function closeComposer() {
@@ -2638,7 +3020,17 @@ export function App() {
             ) : null}
 
             <div className="detail-workspace">
-              <div className="request-response-flow">
+              <div
+                className={`request-response-flow ${
+                  isResponseCollapsed ? "response-collapsed" : ""
+                }`}
+                ref={requestResponseFlowRef}
+                style={
+                  {
+                    "--response-panel-height": `${responsePanelHeight}px`,
+                  } as CSSProperties
+                }
+              >
                 <section className="editor-tabs-panel">
                   <div className="editor-tab-list" role="tablist" aria-label="Tool editor">
                     <button
@@ -2721,7 +3113,19 @@ export function App() {
                   )}
                 </section>
 
-                <section className="response-viewer">
+                <section
+                  className={`response-viewer ${
+                    isResponseCollapsed ? "collapsed" : ""
+                  }`}
+                >
+                  {!isResponseCollapsed ? (
+                    <button
+                      aria-label="Resize response panel"
+                      className="response-resize-handle"
+                      onPointerDown={handleResponseResizePointerDown}
+                      type="button"
+                    />
+                  ) : null}
                   <div className="response-header">
                     <div>
                       <h3>Response</h3>
@@ -2737,29 +3141,94 @@ export function App() {
                         {responseStatus}
                       </small>
                     </div>
-                    <div className="view-toggle">
+                    <div className="response-header-actions">
+                      {responseCopyStatus ? (
+                        <small className="copy-status">{responseCopyStatus}</small>
+                      ) : null}
                       <button
-                        className={responseViewMode === "formatted" ? "selected" : ""}
-                        onClick={() => setResponseViewMode("formatted")}
+                        className="secondary-button"
+                        disabled={!responsePayload}
+                        onClick={() => void handleCopyResponseJson()}
                         type="button"
                       >
-                        Formatted
+                        <Copy aria-hidden="true" size={14} strokeWidth={2.2} />
+                        Copy JSON
                       </button>
+                      {responseErrorSummary?.detail ? (
+                        <button
+                          className="secondary-button"
+                          onClick={() => void handleCopyResponseError()}
+                          type="button"
+                        >
+                          <Copy aria-hidden="true" size={14} strokeWidth={2.2} />
+                          Copy error
+                        </button>
+                      ) : null}
+                      <div className="view-toggle">
+                        <button
+                          className={responseViewMode === "formatted" ? "selected" : ""}
+                          onClick={() => setResponseViewMode("formatted")}
+                          type="button"
+                        >
+                          Formatted
+                        </button>
+                        <button
+                          className={responseViewMode === "raw" ? "selected" : ""}
+                          onClick={() => setResponseViewMode("raw")}
+                          type="button"
+                        >
+                          Raw
+                        </button>
+                      </div>
                       <button
-                        className={responseViewMode === "raw" ? "selected" : ""}
-                        onClick={() => setResponseViewMode("raw")}
+                        className="secondary-button"
+                        onClick={() => setIsResponseCollapsed((collapsed) => !collapsed)}
                         type="button"
                       >
-                        Raw
+                        {isResponseCollapsed ? "Expand" : "Collapse"}
                       </button>
                     </div>
                   </div>
-                  {responsePayload ? (
-                    <pre className="response-output">{formatJson(responsePayload)}</pre>
-                  ) : (
+                  {!isResponseCollapsed && responsePayload ? (
+                    <div className="response-body">
+                      {responseErrorSummary ? (
+                        <section className="response-error-summary" aria-label="Error summary">
+                          <strong>Error</strong>
+                          <p>{responseErrorSummary.title}</p>
+                          {responseErrorSummary.detail ? (
+                            <>
+                              <strong>Details</strong>
+                              <pre>{responseErrorSummary.detail}</pre>
+                            </>
+                          ) : null}
+                        </section>
+                      ) : null}
+                      {responseViewMode === "formatted" ? (
+                        <>
+                          <div className="response-tree-toolbar">
+                            <button onClick={expandFullResponse} type="button">
+                              Expand all
+                            </button>
+                            <button onClick={collapseFullResponse} type="button">
+                              Collapse all
+                            </button>
+                          </div>
+                          <JsonTreeViewer
+                            expandedPaths={expandedResponsePaths}
+                            onToggle={toggleResponseJsonPath}
+                            value={responsePayload}
+                          />
+                        </>
+                      ) : (
+                        <pre className="response-output">{responsePayloadText}</pre>
+                      )}
+                    </div>
+                  ) : !isResponseCollapsed ? (
                     <div className="response-empty">
                       Run a tool or select a trace to inspect details here.
                     </div>
+                  ) : (
+                    null
                   )}
                 </section>
               </div>

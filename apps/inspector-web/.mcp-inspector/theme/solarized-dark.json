@@ -9,7 +9,7 @@
     "--color-accent-softer": "rgba(38, 139, 210, 0.18)",
     "--color-background": "#002b36",
     "--color-border": "#123a44",
-    "--color-code-background": "#0a333e",
+    "--color-code-background": "#002b36",
     "--color-code-text": "#839496",
     "--color-danger": "#dc322f",
     "--color-danger-soft": "rgba(220, 50, 47, 0.16)",

@@ -44,8 +44,11 @@ export const defaultTheme: ThemeDefinition = {
 };
 
 const optionalTokenFallbacks: Record<string, { token?: string; value?: string }> = {
-  "--color-sidebar-background": { token: "--color-panel-muted" },
+  "--color-code-background": { token: "--color-panel" },
+  "--color-panel-muted": { token: "--color-panel" },
+  "--color-sidebar-background": { token: "--color-panel" },
   "--color-sidebar-border": { token: "--color-border" },
+  "--color-surface-elevated": { token: "--color-surface" },
   "--shadow-sidebar": { value: "none" },
 };
 const tokenNames = Object.keys(defaultTheme.tokens);

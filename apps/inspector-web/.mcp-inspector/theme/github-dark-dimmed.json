@@ -16,7 +16,7 @@
     "--color-sidebar-border": "#444c56",
     "--shadow-sidebar": "10px 0 28px rgba(0, 0, 0, 0.32)",
     "--color-border": "#444c56",
-    "--color-code-background": "#161b22",
+    "--color-code-background": "#22272e",
     "--color-code-text": "#cdd9e5",
     "--color-text": "#adbac7",
     "--color-text-muted": "#768390",

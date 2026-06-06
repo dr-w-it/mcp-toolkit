@@ -90,11 +90,16 @@ invalid custom theme, the runtime returns the internal default theme. Theme
 loading diagnostics are returned as non-fatal warnings so invalid local files do
 not prevent startup.
 
-Theme files must define a stable lowercase id, a display name, and the semantic
-CSS token set returned by the default theme. Sidebar hierarchy tokens are
-recommended for custom themes; when they are omitted, the runtime derives
-sidebar background and border from the existing panel and border tokens and
-uses no sidebar elevation.
+Theme files must define a stable lowercase id, a display name, and the core
+semantic CSS token set returned by the default theme. The workspace uses
+`--color-panel` as its base surface and relies on borders, tabs, selection, and
+hover states for hierarchy.
+
+Advanced surface hierarchy tokens are optional. When omitted, the runtime
+derives `--color-panel-muted` and `--color-code-background` from
+`--color-panel`, derives `--color-surface-elevated` from `--color-surface`,
+derives sidebar background and border from the existing panel and border
+tokens, and uses no sidebar elevation.
 
 ```json
 {

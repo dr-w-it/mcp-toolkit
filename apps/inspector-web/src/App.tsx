@@ -35,6 +35,9 @@ type RuntimeDataSource = "runtime" | "mock";
 type CapabilityTab = "tools" | "resources" | "prompts" | "schemas";
 type EditorTab = "schema" | "request";
 type ResponseViewMode = "formatted" | "raw";
+type SidebarSectionId = "connections" | "savedRequests" | "timeline";
+
+type SidebarSectionState = Record<SidebarSectionId, boolean>;
 
 interface RuntimeData {
   capabilities: CapabilitySummary;
@@ -95,11 +98,50 @@ interface ConfirmationModalProps {
   onConfirmationChange?: (value: string) => void;
 }
 
+const sidebarSectionStorageKey = "mcp-inspector.sidebar.sections.v1";
+const defaultSidebarSectionState: SidebarSectionState = {
+  connections: false,
+  savedRequests: false,
+  timeline: false,
+};
+
 const transportOptions: { label: string; value: ConnectionTransport }[] = [
   { label: "stdio", value: "stdio" },
   { label: "HTTP", value: "http" },
   { label: "SSE", value: "sse" },
 ];
+
+function readSidebarSectionState(): SidebarSectionState {
+  if (typeof window === "undefined") {
+    return defaultSidebarSectionState;
+  }
+
+  try {
+    const rawState = window.localStorage.getItem(sidebarSectionStorageKey);
+    const parsedState = rawState ? JSON.parse(rawState) : {};
+
+    if (!isJsonObject(parsedState)) {
+      return defaultSidebarSectionState;
+    }
+
+    return {
+      connections:
+        typeof parsedState.connections === "boolean"
+          ? parsedState.connections
+          : defaultSidebarSectionState.connections,
+      savedRequests:
+        typeof parsedState.savedRequests === "boolean"
+          ? parsedState.savedRequests
+          : defaultSidebarSectionState.savedRequests,
+      timeline:
+        typeof parsedState.timeline === "boolean"
+          ? parsedState.timeline
+          : defaultSidebarSectionState.timeline,
+    };
+  } catch {
+    return defaultSidebarSectionState;
+  }
+}
 
 const capabilityTabs: { id: CapabilityTab; label: string }[] = [
   { id: "tools", label: "Tools" },
@@ -394,6 +436,8 @@ export function App() {
     theme: null,
     traces: traceEntries,
   });
+  const [collapsedSidebarSections, setCollapsedSidebarSections] =
+    useState<SidebarSectionState>(() => readSidebarSectionState());
   const [draftConnections, setDraftConnections] = useState<ConnectionProfile[]>([]);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
@@ -445,6 +489,9 @@ export function App() {
   const [executingSavedRequestId, setExecutingSavedRequestId] = useState<string | null>(null);
   const [updatingSavedRequestId, setUpdatingSavedRequestId] = useState<string | null>(null);
   const [deletingSavedRequestId, setDeletingSavedRequestId] = useState<string | null>(null);
+  const [savedRequestActionMenuId, setSavedRequestActionMenuId] = useState<string | null>(
+    null,
+  );
   const [expandedSavedRequestId, setExpandedSavedRequestId] = useState<string | null>(
     null,
   );
@@ -463,6 +510,7 @@ export function App() {
     useState<ResponseViewMode>("formatted");
   const traceFileInputRef = useRef<HTMLInputElement | null>(null);
   const toolActionMenuRef = useRef<HTMLDivElement | null>(null);
+  const savedRequestActionMenuRef = useRef<HTMLDivElement | null>(null);
   const isLoadingSavedRequestRef = useRef(false);
 
   const connections = useMemo(() => {
@@ -789,6 +837,13 @@ export function App() {
   }, [loadRuntimeData]);
 
   useEffect(() => {
+    window.localStorage.setItem(
+      sidebarSectionStorageKey,
+      JSON.stringify(collapsedSidebarSections),
+    );
+  }, [collapsedSidebarSections]);
+
+  useEffect(() => {
     if (isLoadingSavedRequestRef.current) {
       isLoadingSavedRequestRef.current = false;
       return;
@@ -839,6 +894,39 @@ export function App() {
   ]);
 
   useEffect(() => {
+    if (!savedRequestActionMenuId) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+
+      if (
+        target instanceof Node &&
+        savedRequestActionMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setSavedRequestActionMenuId(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSavedRequestActionMenuId(null);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [savedRequestActionMenuId]);
+
+  useEffect(() => {
     if (!isToolActionMenuOpen) {
       return;
     }
@@ -879,6 +967,13 @@ export function App() {
     setComposerError(null);
     setEnvRows([createBlankRow("env")]);
     setHeaderRows([createBlankRow("header")]);
+  }
+
+  function toggleSidebarSection(sectionId: SidebarSectionId) {
+    setCollapsedSidebarSections((sections) => ({
+      ...sections,
+      [sectionId]: !sections[sectionId],
+    }));
   }
 
   function closeComposer() {
@@ -1436,6 +1531,7 @@ export function App() {
   }
 
   function handleLoadSavedRequest(savedRequest: SavedRequest) {
+    setSavedRequestActionMenuId(null);
     isLoadingSavedRequestRef.current = true;
     setActiveCapabilityTab("tools");
     setActiveEditorTab("request");
@@ -1458,6 +1554,7 @@ export function App() {
   }
 
   async function handleExecuteSavedRequest(savedRequest: SavedRequest) {
+    setSavedRequestActionMenuId(null);
     handleLoadSavedRequest(savedRequest);
     setExecutingSavedRequestId(savedRequest.id);
     setToolExecution(null);
@@ -1543,6 +1640,7 @@ export function App() {
         return remainingEdits;
       });
       setExpandedSavedRequestId(null);
+      setSavedRequestActionMenuId(null);
     } catch (error) {
       setSavedRequestError(getErrorMessage(error));
     } finally {
@@ -1552,6 +1650,7 @@ export function App() {
 
   function openDeleteSavedRequestModal(savedRequest: SavedRequest) {
     setDeleteSavedRequestCandidate(savedRequest);
+    setSavedRequestActionMenuId(null);
     setSavedRequestError(null);
   }
 
@@ -1723,8 +1822,8 @@ export function App() {
         </div>
 
         <section className={`runtime-status ${runtimeTone}`} aria-live="polite">
-          <span className={`status-dot ${runtimeTone}`} />
-          <div>
+          <div className="runtime-status-line">
+            <span className={`status-dot ${runtimeTone}`} />
             <strong>
               {runtimeTone === "checking"
                 ? "Checking runtime"
@@ -1732,15 +1831,19 @@ export function App() {
                   ? "Runtime online"
                   : "Fallback dev data"}
             </strong>
-            <small>
-              {runtimeTone === "checking"
-                ? `Probing ${runtimeBaseUrl}`
-                : runtimeTone === "online"
-                  ? `${runtimeData.health?.service ?? "inspector-runtime"} at ${runtimeBaseUrl}`
-                  : runtimeData.error ?? "Local runtime unavailable"}
-            </small>
-            {themeStatus ? <small className="theme-status">{themeStatus}</small> : null}
           </div>
+          <small>
+            {runtimeTone === "checking"
+              ? runtimeBaseUrl
+              : runtimeTone === "online"
+                ? runtimeBaseUrl.replace(/^https?:\/\//, "")
+                : runtimeData.error ?? "Local runtime unavailable"}
+          </small>
+          {themeStatus ? (
+            <small className="theme-status">
+              {runtimeData.theme?.activeTheme.name ?? themeStatus.replace(/^Theme:\s*/, "")}
+            </small>
+          ) : null}
         </section>
 
         {themeDiagnostics.length > 0 ? (
@@ -1757,7 +1860,16 @@ export function App() {
 
         <section className="sidebar-section connections-section">
           <div className="section-header">
-            <h2>Connections</h2>
+            <button
+              aria-expanded={!collapsedSidebarSections.connections}
+              className="section-toggle"
+              onClick={() => toggleSidebarSection("connections")}
+              type="button"
+            >
+              <ChevronDown aria-hidden="true" size={14} strokeWidth={2.2} />
+              <h2>Connections</h2>
+              <small>{connections.length}</small>
+            </button>
             <button
               aria-expanded={isComposerOpen}
               className="ghost-button"
@@ -1768,7 +1880,7 @@ export function App() {
             </button>
           </div>
 
-          {isComposerOpen ? (
+          {!collapsedSidebarSections.connections && isComposerOpen ? (
             <form className="connection-composer" onSubmit={handleSubmit}>
               <div className="composer-header">
                 <h3>{editingConnectionId ? "Edit connection" : "New connection"}</h3>
@@ -1955,109 +2067,161 @@ export function App() {
             </form>
           ) : null}
 
-          <div className="connection-list">
-            {connections.map((connection) => (
-              <button
-                className={`connection-item ${
-                  connection.id === selectedConnection?.id ? "active" : ""
-                }`}
-                key={connection.id}
-                onClick={() => void handleSelectConnection(connection.id)}
-                type="button"
-              >
-                <span className="status-dot online" />
-                <span className="connection-name">{connection.name}</span>
-                <small>{connection.transport}</small>
-              </button>
-            ))}
-          </div>
-          {connectionActionError ? (
-            <small className="inline-error connection-action-error">
-              {connectionActionError}
-            </small>
+          {!collapsedSidebarSections.connections ? (
+            <>
+              <div className="connection-list">
+                {connections.map((connection) => (
+                  <button
+                    className={`connection-item ${
+                      connection.id === selectedConnection?.id ? "active" : ""
+                    }`}
+                    key={connection.id}
+                    onClick={() => void handleSelectConnection(connection.id)}
+                    type="button"
+                  >
+                    <span className="status-dot online" />
+                    <span className="connection-name">{connection.name}</span>
+                    <small>{connection.transport}</small>
+                  </button>
+                ))}
+              </div>
+              {connectionActionError ? (
+                <small className="inline-error connection-action-error">
+                  {connectionActionError}
+                </small>
+              ) : null}
+            </>
           ) : null}
         </section>
 
         <section className="sidebar-section saved-requests-section">
           <div className="section-header">
-            <h2>Saved Requests</h2>
-            <small className="section-count">{runtimeData.savedRequests.length}</small>
+            <button
+              aria-expanded={!collapsedSidebarSections.savedRequests}
+              className="section-toggle"
+              onClick={() => toggleSidebarSection("savedRequests")}
+              type="button"
+            >
+              <ChevronDown aria-hidden="true" size={14} strokeWidth={2.2} />
+              <h2>Saved Requests</h2>
+              <small>{runtimeData.savedRequests.length}</small>
+            </button>
           </div>
-          {savedRequestError && !deleteSavedRequestCandidate ? (
-            <small className="inline-error saved-request-sidebar-error">
-              {savedRequestError}
-            </small>
-          ) : null}
-          <div className="saved-request-sidebar-list">
-            {savedRequestGroups.length > 0 ? (
-              savedRequestGroups.map((group) => (
-                <div className="saved-request-tool-group" key={group.toolName}>
-                  <div className="saved-request-group-header">
-                    <span>{group.toolName}</span>
-                    <small>{group.requests.length}</small>
-                  </div>
-                  {group.requests.map((savedRequest) => {
-                    const editDraft = savedRequestEdits[savedRequest.id] ?? {
-                      description: savedRequest.description ?? "",
-                      name: savedRequest.name,
-                    };
-                    const isExpanded = expandedSavedRequestId === savedRequest.id;
-                    const isLoaded = loadedSavedRequestId === savedRequest.id;
-                    const detailsId = `saved-request-sidebar-details-${savedRequest.id}`;
+          {!collapsedSidebarSections.savedRequests ? (
+            <>
+              {savedRequestError && !deleteSavedRequestCandidate ? (
+                <small className="inline-error saved-request-sidebar-error">
+                  {savedRequestError}
+                </small>
+              ) : null}
+              <div className="saved-request-sidebar-list">
+                {savedRequestGroups.length > 0 ? (
+                  savedRequestGroups.map((group) => (
+                    <div className="saved-request-tool-group" key={group.toolName}>
+                      <div className="saved-request-group-header">
+                        <ChevronDown aria-hidden="true" size={12} strokeWidth={2.2} />
+                        <span>{group.toolName}</span>
+                        <small>{group.requests.length}</small>
+                      </div>
+                      {group.requests.map((savedRequest) => {
+                        const editDraft = savedRequestEdits[savedRequest.id] ?? {
+                          description: savedRequest.description ?? "",
+                          name: savedRequest.name,
+                        };
+                        const isExpanded = expandedSavedRequestId === savedRequest.id;
+                        const isLoaded = loadedSavedRequestId === savedRequest.id;
+                        const isActionMenuOpen =
+                          savedRequestActionMenuId === savedRequest.id;
+                        const detailsId = `saved-request-sidebar-details-${savedRequest.id}`;
 
-                    return (
-                      <article
-                        className={`saved-request-nav-item ${isLoaded ? "loaded" : ""} ${
-                          isExpanded ? "expanded" : ""
-                        }`}
-                        key={savedRequest.id}
-                      >
-                        <button
-                          className="saved-request-nav-main"
-                          onClick={() => handleLoadSavedRequest(savedRequest)}
-                          title={savedRequest.description ?? savedRequest.id}
-                          type="button"
-                        >
-                          <span>
-                            {savedRequest.name}
-                            {isLoaded && hasLoadedSavedRequestChanges ? (
-                              <span className="dirty-indicator" aria-label="Unsaved changes" />
-                            ) : null}
-                          </span>
-                          <small>
-                            {isLoaded && hasLoadedSavedRequestChanges
-                              ? "Unsaved changes"
-                              : (savedRequest.description ?? savedRequest.id)}
-                          </small>
-                        </button>
-                        <div className="saved-request-nav-actions">
-                          <button
-                            disabled={executingSavedRequestId === savedRequest.id}
-                            onClick={() => void handleExecuteSavedRequest(savedRequest)}
-                            type="button"
+                        return (
+                          <article
+                            className={`saved-request-nav-item ${
+                              isLoaded ? "loaded" : ""
+                            } ${isExpanded ? "expanded" : ""}`}
+                            key={savedRequest.id}
                           >
-                            {executingSavedRequestId === savedRequest.id
-                              ? "Running"
-                              : "Execute"}
-                          </button>
-                          <button
-                            aria-controls={detailsId}
-                            aria-expanded={isExpanded}
-                            onClick={() => toggleSavedRequestDetails(savedRequest.id)}
-                            type="button"
-                          >
-                            {isExpanded ? "Hide" : "Edit"}
-                          </button>
-                          <button
-                            disabled={deletingSavedRequestId === savedRequest.id}
-                            onClick={() => openDeleteSavedRequestModal(savedRequest)}
-                            type="button"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                        {isExpanded ? (
-                          <div className="saved-request-inline-editor" id={detailsId}>
+                            <div className="saved-request-nav-row">
+                              <button
+                                className="saved-request-nav-main"
+                                onClick={() => handleLoadSavedRequest(savedRequest)}
+                                title={savedRequest.description ?? savedRequest.id}
+                                type="button"
+                              >
+                                <span>
+                                  {savedRequest.name}
+                                  {isLoaded && hasLoadedSavedRequestChanges ? (
+                                    <span
+                                      className="dirty-indicator"
+                                      aria-label="Unsaved changes"
+                                    />
+                                  ) : null}
+                                </span>
+                              </button>
+                              <div
+                                className="saved-request-action-menu-wrap"
+                                ref={
+                                  isActionMenuOpen ? savedRequestActionMenuRef : undefined
+                                }
+                              >
+                                <button
+                                  aria-expanded={isActionMenuOpen}
+                                  aria-haspopup="menu"
+                                  aria-label={`Actions for ${savedRequest.name}`}
+                                  className="saved-request-menu-button"
+                                  onClick={() =>
+                                    setSavedRequestActionMenuId((currentId) =>
+                                      currentId === savedRequest.id
+                                        ? null
+                                        : savedRequest.id,
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  ...
+                                </button>
+                                {isActionMenuOpen ? (
+                                  <div className="saved-request-action-menu" role="menu">
+                                    <button
+                                      disabled={executingSavedRequestId === savedRequest.id}
+                                      onClick={() =>
+                                        void handleExecuteSavedRequest(savedRequest)
+                                      }
+                                      role="menuitem"
+                                      type="button"
+                                    >
+                                      {executingSavedRequestId === savedRequest.id
+                                        ? "Running"
+                                        : "Execute"}
+                                    </button>
+                                    <button
+                                      aria-controls={detailsId}
+                                      aria-expanded={isExpanded}
+                                      onClick={() => {
+                                        setSavedRequestActionMenuId(null);
+                                        toggleSavedRequestDetails(savedRequest.id);
+                                      }}
+                                      role="menuitem"
+                                      type="button"
+                                    >
+                                      {isExpanded ? "Hide edit" : "Edit"}
+                                    </button>
+                                    <button
+                                      disabled={deletingSavedRequestId === savedRequest.id}
+                                      onClick={() =>
+                                        openDeleteSavedRequestModal(savedRequest)
+                                      }
+                                      role="menuitem"
+                                      type="button"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                            {isExpanded ? (
+                              <div className="saved-request-inline-editor" id={detailsId}>
                             <label className="field compact">
                               <span>Name</span>
                               <input
@@ -2106,22 +2270,36 @@ export function App() {
                             </div>
                             <pre>{formatJson(savedRequest.input)}</pre>
                           </div>
-                        ) : null}
-                      </article>
-                    );
-                  })}
-                </div>
-              ))
-            ) : (
-              <div className="empty-state compact">No saved requests for this connection.</div>
-            )}
-          </div>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty-state compact">
+                    No saved requests for this connection.
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
         </section>
 
         <section className="sidebar-section timeline-section">
           <div className="section-header">
-            <h2>Timeline</h2>
-            <div className="section-actions">
+            <button
+              aria-expanded={!collapsedSidebarSections.timeline}
+              className="section-toggle"
+              onClick={() => toggleSidebarSection("timeline")}
+              type="button"
+            >
+              <ChevronDown aria-hidden="true" size={14} strokeWidth={2.2} />
+              <h2>Timeline</h2>
+              <small>{runtimeData.traces.length}</small>
+            </button>
+            {!collapsedSidebarSections.timeline ? (
+              <div className="section-actions">
               <button
                 disabled={
                   runtimeData.source !== "runtime" ||
@@ -2150,33 +2328,38 @@ export function App() {
                 type="file"
               />
             </div>
+            ) : null}
           </div>
-          {traceTransferError ? (
-            <small className="inline-error trace-error">{traceTransferError}</small>
+          {!collapsedSidebarSections.timeline ? (
+            <>
+              {traceTransferError ? (
+                <small className="inline-error trace-error">{traceTransferError}</small>
+              ) : null}
+              <div className="timeline">
+                {runtimeData.traces.length > 0 ? (
+                  runtimeData.traces.map((entry) => (
+                    <button
+                      className={`timeline-item ${
+                        entry.id === selectedTraceEntry?.trace.id ? "selected" : ""
+                      }`}
+                      key={entry.id}
+                      onClick={() => void handleSelectTrace(entry)}
+                      type="button"
+                    >
+                      <span className={`status-dot ${entry.status}`} />
+                      <span>{entry.operation}</span>
+                      <small>
+                        {entry.source === "imported" ? "imported " : ""}
+                        {entry.durationMs}ms
+                      </small>
+                    </button>
+                  ))
+                ) : (
+                  <div className="empty-state compact">No runtime activity yet.</div>
+                )}
+              </div>
+            </>
           ) : null}
-          <div className="timeline">
-            {runtimeData.traces.length > 0 ? (
-              runtimeData.traces.map((entry) => (
-                <button
-                  className={`timeline-item ${
-                    entry.id === selectedTraceEntry?.trace.id ? "selected" : ""
-                  }`}
-                  key={entry.id}
-                  onClick={() => void handleSelectTrace(entry)}
-                  type="button"
-                >
-                  <span className={`status-dot ${entry.status}`} />
-                  <span>{entry.operation}</span>
-                  <small>
-                    {entry.source === "imported" ? "imported " : ""}
-                    {entry.durationMs}ms
-                  </small>
-                </button>
-              ))
-            ) : (
-              <div className="empty-state compact">No runtime activity yet.</div>
-            )}
-          </div>
         </section>
 
         </div>

@@ -227,13 +227,19 @@ textarea::placeholder {
 
 .runtime-status {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
+  gap: 4px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface);
-  padding: 13px 14px;
+  padding: 10px 12px;
+}
+
+.runtime-status-line {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .runtime-status strong,
@@ -248,9 +254,10 @@ textarea::placeholder {
 }
 
 .runtime-status small {
-  margin-top: 4px;
+  margin-left: 20px;
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
 }
 
 .runtime-status .theme-status {
@@ -317,6 +324,8 @@ textarea::placeholder {
 .sidebar-section {
   display: block;
   min-width: 0;
+  border-top: 1px solid var(--color-sidebar-border);
+  padding-top: 12px;
 }
 
 .connections-section {
@@ -344,7 +353,50 @@ textarea::placeholder {
 }
 
 .section-header {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+.section-toggle {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, auto) auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 30px;
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-secondary);
+  text-align: left;
+}
+
+.section-toggle:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.section-toggle svg {
+  color: var(--color-text-muted);
+  transition: transform 120ms ease;
+}
+
+.section-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.section-toggle h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-toggle small {
+  color: var(--color-text-muted);
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
 }
 
 .section-actions {
@@ -375,13 +427,6 @@ textarea::placeholder {
   font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
-}
-
-.section-count {
-  color: var(--color-text-muted);
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-size: 12px;
 }
 
 .ghost-button {
@@ -645,7 +690,7 @@ textarea::placeholder {
 .saved-request-sidebar-list {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   padding-right: 2px;
 }
@@ -658,17 +703,17 @@ textarea::placeholder {
 
 .saved-request-tool-group {
   display: grid;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
 }
 
 .saved-request-group-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  padding: 0 2px;
+  padding: 2px;
   color: var(--color-text-muted);
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -684,13 +729,14 @@ textarea::placeholder {
 }
 
 .saved-request-nav-item {
+  position: relative;
   display: grid;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
-  padding: 7px;
+  padding: 2px;
 }
 
 .saved-request-nav-item:hover {
@@ -707,14 +753,22 @@ textarea::placeholder {
   background: var(--color-surface);
 }
 
-.saved-request-nav-main {
+.saved-request-nav-row {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  min-height: 0;
+}
+
+.saved-request-nav-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 28px;
   border-color: transparent;
   background: transparent;
-  padding: 0;
+  padding: 0 6px;
   text-align: left;
 }
 
@@ -723,8 +777,7 @@ textarea::placeholder {
   background: transparent;
 }
 
-.saved-request-nav-main > span,
-.saved-request-nav-main > small {
+.saved-request-nav-main > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -740,11 +793,6 @@ textarea::placeholder {
   font-weight: 650;
 }
 
-.saved-request-nav-main > small {
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-
 .dirty-indicator {
   flex: 0 0 auto;
   width: 6px;
@@ -753,7 +801,60 @@ textarea::placeholder {
   background: var(--color-warning);
 }
 
-.saved-request-nav-actions,
+.saved-request-action-menu-wrap {
+  position: relative;
+}
+
+.saved-request-menu-button {
+  display: inline-grid;
+  width: 28px;
+  min-height: 28px;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.saved-request-menu-button:hover:not(:disabled),
+.saved-request-menu-button[aria-expanded="true"] {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.saved-request-action-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  min-width: 150px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-surface-elevated);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  padding: 5px;
+}
+
+.saved-request-action-menu button {
+  min-height: 30px;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+  padding: 0 9px;
+  text-align: left;
+}
+
+.saved-request-action-menu button:hover:not(:disabled) {
+  background: var(--color-surface);
+}
+
 .saved-request-editor-actions,
 .save-request-composer-actions {
   display: flex;
@@ -762,7 +863,6 @@ textarea::placeholder {
   min-width: 0;
 }
 
-.saved-request-nav-actions button,
 .saved-request-editor-actions button {
   min-height: 28px;
   padding: 0 8px;
@@ -1694,7 +1794,6 @@ pre {
   .confirmation-modal-actions,
   .section-header,
   .saved-request-editor-actions,
-  .saved-request-nav-actions,
   .save-request-composer-actions,
   .target-actions {
     align-items: flex-start;
@@ -1705,7 +1804,6 @@ pre {
   .form-actions button,
   .confirmation-modal-actions button,
   .saved-request-editor-actions button,
-  .saved-request-nav-actions button,
   .save-request-composer-actions button,
   .section-actions,
   .target-actions button,

@@ -18,6 +18,7 @@ export const defaultTheme: ThemeDefinition = {
     "--color-code-text": "#dbeafe",
     "--color-danger": "#ef4444",
     "--color-danger-soft": "rgba(239, 68, 68, 0.12)",
+    "--color-editor-background": "#0b0e13",
     "--color-focus-ring": "rgba(58, 191, 248, 0.14)",
     "--color-panel": "#0f1115",
     "--color-panel-muted": "#11141a",
@@ -45,6 +46,7 @@ export const defaultTheme: ThemeDefinition = {
 
 const optionalTokenFallbacks: Record<string, { token?: string; value?: string }> = {
   "--color-code-background": { token: "--color-panel" },
+  "--color-editor-background": { token: "--color-code-background" },
   "--color-panel-muted": { token: "--color-panel" },
   "--color-sidebar-background": { token: "--color-panel" },
   "--color-sidebar-border": { token: "--color-border" },

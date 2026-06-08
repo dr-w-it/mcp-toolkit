@@ -27,6 +27,7 @@
   --color-danger: #ef4444;
   --color-danger-soft: rgba(239, 68, 68, 0.12);
   --color-code-background: #0f1115;
+  --color-editor-background: #0b0e13;
   --color-code-text: #dbeafe;
   --color-selection: rgba(58, 191, 248, 0.14);
   --color-focus-ring: rgba(58, 191, 248, 0.14);
@@ -1542,21 +1543,90 @@ textarea::placeholder {
 .json-editor {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 12px;
   min-height: 0;
   padding: 14px;
+  background: var(--color-panel);
 }
 
-.json-editor span {
+.json-editor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.json-editor-meta > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.json-editor-meta strong {
   color: var(--color-text);
   font-size: 13px;
   font-weight: 600;
 }
 
+.json-editor-meta small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.json-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.json-editor-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.json-editor-field {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
+
+.json-editor-field span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
 .json-editor textarea {
   min-height: 0;
   height: 100%;
+  border-color: var(--color-border);
+  border-radius: 7px;
+  background: var(--color-editor-background);
+  color: var(--color-code-text);
   resize: none;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.json-editor textarea:focus,
+.json-editor textarea:focus-visible,
+.json-editor-field.focused textarea {
+  border-color: var(--color-accent);
+  box-shadow:
+    0 0 0 3px var(--color-focus-ring),
+    inset 0 0 0 1px var(--color-accent-border);
 }
 
 .inline-error {

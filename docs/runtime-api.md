@@ -98,8 +98,9 @@ hover states for hierarchy.
 Advanced surface hierarchy tokens are optional. When omitted, the runtime
 derives `--color-panel-muted` and `--color-code-background` from
 `--color-panel`, derives `--color-surface-elevated` from `--color-surface`,
-derives sidebar background and border from the existing panel and border
-tokens, and uses no sidebar elevation.
+derives `--color-editor-background` from `--color-code-background`, derives
+sidebar background and border from the existing panel and border tokens, and
+uses no sidebar elevation.
 
 ```json
 {
@@ -134,6 +135,7 @@ tokens, and uses no sidebar elevation.
     "--color-danger": "#ef4444",
     "--color-danger-soft": "rgba(239, 68, 68, 0.18)",
     "--color-code-background": "#000000",
+    "--color-editor-background": "#000000",
     "--color-code-text": "#dbeafe",
     "--color-selection": "rgba(56, 189, 248, 0.22)",
     "--color-focus-ring": "rgba(56, 189, 248, 0.22)",

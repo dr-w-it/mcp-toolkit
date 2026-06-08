@@ -18,6 +18,7 @@ import type {
   CreateConnectionProfileRequest,
   ExecuteToolCallResponse,
   JsonObject,
+  JsonValue,
   PromptDefinition,
   ResourceDefinition,
   RuntimeHealthResponse,
@@ -265,6 +266,106 @@ function getSchemaSummaries(capabilities: CapabilitySummary): SchemaSummary[] {
 
 function formatJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
+}
+
+function getSchemaType(schema: JsonObject): string | undefined {
+  if (typeof schema.type === "string") {
+    return schema.type;
+  }
+
+  if (Array.isArray(schema.type)) {
+    return schema.type.find((type): type is string => typeof type === "string" && type !== "null");
+  }
+
+  return undefined;
+}
+
+function getSchemaRequiredFields(schema: JsonObject | undefined) {
+  if (!schema || !Array.isArray(schema.required)) {
+    return [];
+  }
+
+  return schema.required.filter((field): field is string => typeof field === "string");
+}
+
+function createExampleValueFromSchema(schema: unknown, depth = 0): JsonValue {
+  if (!isJsonObject(schema) || depth > 8) {
+    return null;
+  }
+
+  if ("default" in schema && schema.default !== undefined) {
+    return toJsonValue(schema.default);
+  }
+
+  if ("const" in schema && schema.const !== undefined) {
+    return toJsonValue(schema.const);
+  }
+
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) {
+    return toJsonValue(schema.enum[0]);
+  }
+
+  const schemaType = getSchemaType(schema);
+
+  if (schemaType === "object" || isJsonObject(schema.properties)) {
+    const requiredFields = getSchemaRequiredFields(schema);
+    const properties = isJsonObject(schema.properties) ? schema.properties : {};
+    const example: JsonObject = {};
+
+    for (const field of requiredFields) {
+      example[field] = createExampleValueFromSchema(properties[field], depth + 1);
+    }
+
+    return example;
+  }
+
+  if (schemaType === "array") {
+    return [];
+  }
+
+  if (schemaType === "number" || schemaType === "integer") {
+    return 0;
+  }
+
+  if (schemaType === "boolean") {
+    return false;
+  }
+
+  if (schemaType === "null") {
+    return null;
+  }
+
+  return "";
+}
+
+function createToolInputExample(tool: ToolDefinition | undefined) {
+  const schema = tool?.inputSchema;
+  const example = createExampleValueFromSchema(schema);
+
+  return isJsonObject(example) ? example : {};
+}
+
+function toJsonValue(value: unknown): JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toJsonValue(item));
+  }
+
+  if (isJsonObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, toJsonValue(item)]),
+    );
+  }
+
+  return null;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -901,6 +1002,7 @@ export function App() {
     formatJson(getDefaultToolInput(capabilitySummary.tools[0])),
   );
   const [toolInputError, setToolInputError] = useState<string | null>(null);
+  const [isToolInputFocused, setIsToolInputFocused] = useState(false);
   const [toolExecution, setToolExecution] = useState<ExecuteToolCallResponse | null>(
     null,
   );
@@ -1107,6 +1209,7 @@ export function App() {
     Boolean(selectedConnection);
   const saveRequestActionLabel =
     loadedSavedRequest && hasLoadedSavedRequestChanges ? "Save changes" : "Save request";
+  const selectedToolRequiredFields = getSchemaRequiredFields(selectedTool?.inputSchema);
   const detailMetadata = [
     activeCapabilityTab === "tools"
       ? getToolParameterSummary(selectedTool)
@@ -1910,6 +2013,33 @@ export function App() {
 
     setToolInputError(null);
     return input;
+  }
+
+  function handleGenerateExampleInput() {
+    setToolInputDraft(formatJson(createToolInputExample(selectedTool)));
+    setToolInputError(null);
+
+    if (loadedSavedRequestId) {
+      setHasLoadedSavedRequestChanges(true);
+    }
+  }
+
+  function handleFormatToolInput() {
+    let parsedInput: unknown;
+
+    try {
+      parsedInput = JSON.parse(toolInputDraft);
+    } catch {
+      setToolInputError("Request input must be valid JSON before formatting.");
+      return;
+    }
+
+    setToolInputDraft(formatJson(parsedInput));
+    setToolInputError(null);
+
+    if (loadedSavedRequestId) {
+      setHasLoadedSavedRequestChanges(true);
+    }
   }
 
   function openSaveRequestComposer() {
@@ -3196,7 +3326,7 @@ export function App() {
                       role="tab"
                       type="button"
                     >
-                      Request
+                      Request Body
                     </button>
                   </div>
 
@@ -3220,26 +3350,59 @@ export function App() {
                       role="tabpanel"
                     >
                       <div className="code-panel-header">
-                        <h3>Request</h3>
+                        <h3>Request Payload</h3>
                         <span>json</span>
                       </div>
                       {activeCapabilityTab === "tools" && selectedTool ? (
-                        <label className="json-editor">
-                          <span>Tool input</span>
-                          <textarea
-                            onChange={(event) => {
-                              setToolInputDraft(event.target.value);
-                              if (loadedSavedRequestId) {
-                                setHasLoadedSavedRequestChanges(true);
+                        <div className="json-editor">
+                          <div className="json-editor-meta">
+                            <div>
+                              <strong>Tool Input</strong>
+                              <small>
+                                {selectedToolRequiredFields.length > 0
+                                  ? `Required fields (${selectedToolRequiredFields.length}): ${selectedToolRequiredFields.join(", ")}`
+                                  : "No required fields"}
+                              </small>
+                            </div>
+                            <div className="json-editor-actions">
+                              <button onClick={handleGenerateExampleInput} type="button">
+                                Generate Example
+                              </button>
+                              <button onClick={handleFormatToolInput} type="button">
+                                Format JSON
+                              </button>
+                            </div>
+                          </div>
+                          <label
+                            className={`json-editor-field ${
+                              isToolInputFocused ? "focused" : ""
+                            }`}
+                          >
+                            <span>Tool input JSON</span>
+                            <textarea
+                              aria-describedby={
+                                toolInputError ? "tool-input-error" : undefined
                               }
-                            }}
-                            spellCheck={false}
-                            value={toolInputDraft}
-                          />
+                              onChange={(event) => {
+                                setToolInputDraft(event.target.value);
+                                if (loadedSavedRequestId) {
+                                  setHasLoadedSavedRequestChanges(true);
+                                }
+                              }}
+                              onBlur={() => setIsToolInputFocused(false)}
+                              onClick={() => setIsToolInputFocused(true)}
+                              onFocus={() => setIsToolInputFocused(true)}
+                              onPointerDown={() => setIsToolInputFocused(true)}
+                              spellCheck={false}
+                              value={toolInputDraft}
+                            />
+                          </label>
                           {toolInputError ? (
-                            <small className="inline-error">{toolInputError}</small>
+                            <small className="inline-error" id="tool-input-error">
+                              {toolInputError}
+                            </small>
                           ) : null}
-                        </label>
+                        </div>
                       ) : (
                         <pre>
                           {formatJson({

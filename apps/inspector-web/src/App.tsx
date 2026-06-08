@@ -45,6 +45,7 @@ type SidebarSectionState = Record<SidebarSectionId, boolean>;
 
 interface RuntimeData {
   capabilities: CapabilitySummary;
+  capabilityError: RuntimeDisplayError | null;
   connections: ConnectionProfile[];
   error: string | null;
   health: RuntimeHealthResponse | null;
@@ -958,6 +959,7 @@ export function App() {
   const selectedConnectionIdRef = useRef(selectedConnectionId);
   const [runtimeData, setRuntimeData] = useState<RuntimeData>({
     capabilities: capabilitySummary,
+    capabilityError: null,
     connections: connectionProfiles,
     error: null,
     health: null,
@@ -1280,6 +1282,7 @@ export function App() {
     async (signal?: AbortSignal) => {
       setRuntimeData((currentData) => ({
         ...currentData,
+        capabilityError: null,
         error: null,
         isLoading: true,
       }));
@@ -1299,25 +1302,53 @@ export function App() {
           nextConnections.some((connection) => connection.id === preferredConnectionId)
             ? preferredConnectionId
             : nextConnections[0]?.id ?? null;
-        const [capabilities, savedRequestsResponse] = nextSelectedConnectionId
-          ? await Promise.all([
-              localRuntimeClient.getCapabilities(nextSelectedConnectionId, signal),
-              localRuntimeClient.listSavedRequests(nextSelectedConnectionId, signal),
-            ])
-          : [
-              createEmptyCapabilitySummary("runtime"),
-              { savedRequests: [] },
-            ];
+        let capabilities = createEmptyCapabilitySummary(
+          nextSelectedConnectionId ?? "runtime",
+        );
+        let capabilityError: RuntimeDisplayError | null = null;
+        let savedRequests: SavedRequest[] = [];
+
+        if (nextSelectedConnectionId) {
+          try {
+            capabilities = await localRuntimeClient.getCapabilities(
+              nextSelectedConnectionId,
+              signal,
+            );
+          } catch (error) {
+            if (signal?.aborted) {
+              return;
+            }
+
+            capabilityError = getRuntimeDisplayError(error);
+          }
+
+          try {
+            const savedRequestsResponse = await localRuntimeClient.listSavedRequests(
+              nextSelectedConnectionId,
+              signal,
+            );
+
+            savedRequests = savedRequestsResponse.savedRequests;
+            setSavedRequestError(null);
+          } catch (error) {
+            if (signal?.aborted) {
+              return;
+            }
+
+            setSavedRequestError(getErrorMessage(error));
+          }
+        }
 
         setDraftConnections([]);
         selectConnectionId(nextSelectedConnectionId);
         setRuntimeData({
           capabilities,
+          capabilityError,
           connections: nextConnections,
           error: null,
           health,
           isLoading: false,
-          savedRequests: savedRequestsResponse.savedRequests,
+          savedRequests,
           source: "runtime",
           theme: themeResponse,
           traces: historyResponse.traces,
@@ -1329,6 +1360,7 @@ export function App() {
 
         setRuntimeData({
           capabilities: capabilitySummary,
+          capabilityError: null,
           connections: connectionProfiles,
           error: getErrorMessage(error),
           health: null,
@@ -1659,6 +1691,7 @@ export function App() {
     setRuntimeData((currentData) => ({
       ...currentData,
       capabilities: createEmptyCapabilitySummary(connectionId),
+      capabilityError: null,
       error: null,
       isLoading: true,
     }));
@@ -1673,6 +1706,7 @@ export function App() {
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities,
+        capabilityError: null,
         error: null,
         isLoading: false,
       }));
@@ -1684,7 +1718,8 @@ export function App() {
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities: createEmptyCapabilitySummary(connectionId),
-        error: getErrorMessage(error),
+        capabilityError: getRuntimeDisplayError(error),
+        error: null,
         isLoading: false,
       }));
     }
@@ -1763,6 +1798,7 @@ export function App() {
           setRuntimeData((currentData) => ({
             ...currentData,
             capabilities: createEmptyCapabilitySummary(updatedProfile.connection.id),
+            capabilityError: null,
             connections: currentData.connections.map((connection) =>
               connection.id === updatedProfile.connection.id
                 ? updatedProfile.connection
@@ -1797,6 +1833,7 @@ export function App() {
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities: createEmptyCapabilitySummary(updatedDraft.id),
+        capabilityError: null,
         savedRequests: [],
       }));
       closeComposer();
@@ -1814,6 +1851,7 @@ export function App() {
         setRuntimeData((currentData) => ({
           ...currentData,
           capabilities: createEmptyCapabilitySummary(createdProfile.connection.id),
+          capabilityError: null,
           connections: [
             createdProfile.connection,
             ...currentData.connections.filter(
@@ -1847,6 +1885,7 @@ export function App() {
     setRuntimeData((currentData) => ({
       ...currentData,
       capabilities: createEmptyCapabilitySummary(profile.id),
+      capabilityError: null,
       savedRequests: [],
     }));
     closeComposer();
@@ -1867,6 +1906,7 @@ export function App() {
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities: createEmptyCapabilitySummary(connectionId),
+        capabilityError: null,
         error: null,
         isLoading: false,
         savedRequests: [],
@@ -1948,6 +1988,7 @@ export function App() {
       setRuntimeData((currentData) => ({
         ...currentData,
         capabilities: createEmptyCapabilitySummary(nextConnectionId ?? "runtime"),
+        capabilityError: null,
         connections: remainingConnections,
         error: null,
         isLoading: true,
@@ -3042,6 +3083,9 @@ export function App() {
             {runtimeTone === "fallback" ? (
               <span className="warning-pill">Fallback data</span>
             ) : null}
+            {runtimeData.capabilityError && runtimeData.source === "runtime" ? (
+              <span className="warning-pill">Connection error</span>
+            ) : null}
             <button
               disabled={!selectedConnection}
               onClick={() =>
@@ -3116,7 +3160,30 @@ export function App() {
             </div>
 
             <div className="capability-list">
-              {filteredCapabilityItems.length > 0 ? (
+              {runtimeData.capabilityError ? (
+                <section className="capability-error-panel" role="alert">
+                  <div className="capability-error-heading">
+                    <TriangleAlert aria-hidden="true" size={18} strokeWidth={2.2} />
+                    <div>
+                      <strong>Capability discovery failed</strong>
+                      <small>
+                        {runtimeData.capabilityError.code ?? "connection_error"}
+                        {runtimeData.capabilityError.status
+                          ? ` - HTTP ${runtimeData.capabilityError.status}`
+                          : ""}
+                      </small>
+                    </div>
+                  </div>
+                  <p>{runtimeData.capabilityError.message}</p>
+                  {runtimeData.capabilityError.details?.length ? (
+                    <ul>
+                      {runtimeData.capabilityError.details.map((detail) => (
+                        <li key={detail}>{detail}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+              ) : filteredCapabilityItems.length > 0 ? (
                 filteredCapabilityItems.map((item) => (
                   <button
                     className={`capability-card ${

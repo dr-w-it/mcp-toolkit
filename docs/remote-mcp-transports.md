@@ -78,13 +78,25 @@ Remote failures use the existing JSON error shape:
 
 ```json
 {
-  "error": "MCP server startup failed: fetch failed"
+  "error": "Remote MCP server requires authentication before capabilities can be discovered.",
+  "code": "authentication_required",
+  "details": ["Upstream response looked like an authentication challenge."]
 }
 ```
 
-The runtime returns compatible errors for invalid URLs, remote auth failures,
-network failures, CORS-like fetch failures, timeouts, unsupported methods, and
-tool execution failures.
+Capability discovery failures are connection-specific. The web UI keeps the
+local runtime online when health, connection listing, and history endpoints are
+available, then shows the selected connection error in the capability pane
+instead of rendering it as a valid empty capability list.
+
+The runtime returns compatible errors for invalid URLs, remote auth challenges,
+remote auth failures, insufficient scopes, expired tokens, network failures,
+CORS-like fetch failures, timeouts, unsupported methods, and tool execution
+failures. Runtime logs for connection and capability discovery include only safe
+diagnostic fields such as connection id, transport, sanitized target URL,
+duration, error code, HTTP status when detectable, and whether the error looked
+like an authentication challenge. Headers, environment variables, bearer tokens,
+authorization codes, raw MCP payloads, and profile secret values are not logged.
 
 ## Validation Notes
 

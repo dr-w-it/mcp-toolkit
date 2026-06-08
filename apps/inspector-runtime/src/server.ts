@@ -135,6 +135,12 @@ class RuntimeRequestError extends Error {
   }
 }
 
+interface RuntimeErrorResult {
+  body: RuntimeErrorResponse;
+  code: RuntimeErrorCode;
+  status: number;
+}
+
 function getAllowedOrigin(request: IncomingMessage) {
   const origin = request.headers.origin;
 
@@ -211,9 +217,18 @@ async function getMcpConnection(profile: ConnectionProfile): Promise<McpConnecti
     return existingConnection;
   }
 
-  const connection = await mcpClient.connect(profile);
-  mcpConnections.set(profile.id, connection);
-  return connection;
+  const startedAt = Date.now();
+  logConnectionDiagnostic("mcp.connection.start", profile, startedAt);
+
+  try {
+    const connection = await mcpClient.connect(profile);
+    mcpConnections.set(profile.id, connection);
+    logConnectionDiagnostic("mcp.connection.success", profile, startedAt);
+    return connection;
+  } catch (error) {
+    logConnectionDiagnostic("mcp.connection.failure", profile, startedAt, error);
+    throw error;
+  }
 }
 
 function toPublicConnectionProfile(profile: ConnectionProfile): ConnectionProfile {
@@ -223,6 +238,70 @@ function toPublicConnectionProfile(profile: ConnectionProfile): ConnectionProfil
     ...publicProfile,
     isBuiltIn: builtInConnectionProfileIds.has(profile.id),
   };
+}
+
+function logConnectionDiagnostic(
+  event: string,
+  profile: ConnectionProfile,
+  startedAt: number,
+  error?: unknown,
+) {
+  const runtimeError = error ? getRuntimeError(error) : undefined;
+  const message = getDiagnosticErrorMessage(error);
+  const diagnostic = {
+    event,
+    connectionId: profile.id,
+    durationMs: Math.max(1, Date.now() - startedAt),
+    errorCode: runtimeError?.code,
+    hasAuthChallenge: message ? hasAuthenticationChallenge(message) : undefined,
+    httpStatus: message ? getHttpStatusFromMessage(message) : undefined,
+    targetUrl: sanitizeConnectionUrl(profile),
+    transport: profile.transport,
+  };
+
+  if (error) {
+    console.warn(JSON.stringify(diagnostic));
+    return;
+  }
+
+  console.info(JSON.stringify(diagnostic));
+}
+
+function sanitizeConnectionUrl(profile: ConnectionProfile) {
+  if (profile.transport === "stdio" || !profile.url) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(profile.url);
+
+    url.hash = "";
+    url.password = "";
+    url.search = "";
+    url.username = "";
+    return url.toString();
+  } catch {
+    return "invalid-url";
+  }
+}
+
+function getDiagnosticErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : undefined;
+}
+
+function getHttpStatusFromMessage(message: string) {
+  const statusMatch =
+    message.match(/\bstatus(?: code)?[:= ]+(\d{3})\b/i) ??
+    message.match(/\b(?:HTTP|returned|response|endpoint)[:= ]+(\d{3})\b/i) ??
+    message.match(/\b(401|403|404|408|429|500|502|503|504)\b/);
+
+  return statusMatch?.[1] ? Number.parseInt(statusMatch[1], 10) : undefined;
+}
+
+function hasAuthenticationChallenge(message: string) {
+  return /www-authenticate|protected resource metadata|authorization required|unauthorized|invalid credentials|invalid token|expired token|insufficient scope|oauth/i.test(
+    message,
+  );
 }
 
 function createConnectionId(name: string) {
@@ -920,66 +999,101 @@ async function createToolCall(
   };
 }
 
-function getRuntimeError(error: unknown) {
+function getRuntimeError(error: unknown): RuntimeErrorResult {
   if (error instanceof RuntimeRequestError) {
-    return {
-      body: createRuntimeErrorBody(error.code, error.message, error.details),
-      status: error.status,
-    };
+    return createRuntimeErrorResult(error.status, error.code, error.message, error.details);
   }
 
   if (error instanceof UnsupportedMcpTransportError) {
-    return {
-      body: createRuntimeErrorBody("unsupported_transport", error.message),
-      status: 400,
-    };
+    return createRuntimeErrorResult(400, "unsupported_transport", error.message);
   }
 
   if (error instanceof InvalidMcpCommandError) {
-    return {
-      body: createRuntimeErrorBody("invalid_mcp_command", error.message),
-      status: 400,
-    };
+    return createRuntimeErrorResult(400, "invalid_mcp_command", error.message);
   }
 
   if (error instanceof InvalidMcpUrlError) {
-    return {
-      body: createRuntimeErrorBody("invalid_mcp_url", error.message),
-      status: 400,
-    };
+    return createRuntimeErrorResult(400, "invalid_mcp_url", error.message);
   }
 
   if (error instanceof McpConnectionStartupError) {
-    return {
-      body: createRuntimeErrorBody(
-        "mcp_startup_failed",
-        `MCP server startup failed: ${error.message}`,
-      ),
-      status: 502,
-    };
+    return classifyMcpStartupError(error);
   }
 
   if (error instanceof McpConnectionClosedError) {
-    return {
-      body: createRuntimeErrorBody("mcp_connection_closed", error.message),
-      status: 502,
-    };
+    return createRuntimeErrorResult(502, "mcp_connection_closed", error.message);
   }
 
   if (error instanceof Error && /timeout/i.test(error.message)) {
-    return {
-      body: createRuntimeErrorBody("timeout", error.message),
-      status: 504,
-    };
+    return createRuntimeErrorResult(504, "timeout", error.message);
   }
 
+  return createRuntimeErrorResult(
+    500,
+    "unknown_runtime_error",
+    error instanceof Error ? error.message : "Runtime request failed",
+  );
+}
+
+function createRuntimeErrorResult(
+  status: number,
+  code: RuntimeErrorCode,
+  message: string,
+  details?: string[],
+): RuntimeErrorResult {
   return {
-    body: createRuntimeErrorBody(
-      "unknown_runtime_error",
-      error instanceof Error ? error.message : "Runtime request failed",
-    ),
-    status: 500,
+    body: createRuntimeErrorBody(code, message, details),
+    code,
+    status,
   };
+}
+
+function classifyMcpStartupError(error: McpConnectionStartupError): RuntimeErrorResult {
+  const status = getHttpStatusFromMessage(error.message);
+  const authDetails = status
+    ? [`Upstream HTTP status: ${status}`]
+    : ["Upstream response looked like an authentication challenge."];
+
+  if (/insufficient scope/i.test(error.message) || status === 403) {
+    return createRuntimeErrorResult(
+      403,
+      "insufficient_scope",
+      "Remote MCP server rejected the connection because the current credentials do not have enough scope.",
+      authDetails,
+    );
+  }
+
+  if (/expired token/i.test(error.message)) {
+    return createRuntimeErrorResult(
+      401,
+      "expired_token",
+      "Remote MCP server rejected the connection because the current credentials expired.",
+      authDetails,
+    );
+  }
+
+  if (hasAuthenticationChallenge(error.message) || status === 401) {
+    return createRuntimeErrorResult(
+      401,
+      "authentication_required",
+      "Remote MCP server requires authentication before capabilities can be discovered.",
+      authDetails,
+    );
+  }
+
+  if (/fetch failed|network|econnrefused|enotfound|socket|transport/i.test(error.message)) {
+    return createRuntimeErrorResult(
+      502,
+      "mcp_transport_failed",
+      `MCP transport failed: ${error.message}`,
+    );
+  }
+
+  return createRuntimeErrorResult(
+    502,
+    "mcp_startup_failed",
+    `MCP server startup failed: ${error.message}`,
+  );
 }
 
 const server = createServer(async (request, response) => {
@@ -1212,10 +1326,14 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    const startedAt = Date.now();
+    logConnectionDiagnostic("mcp.capabilities.start", connection, startedAt);
+
     try {
       const mcpConnection = await getMcpConnection(connection);
       const discoveredCapabilities = await mcpConnection.capabilities();
 
+      logConnectionDiagnostic("mcp.capabilities.success", connection, startedAt);
       sendJson(request, response, 200, discoveredCapabilities);
     } catch (error) {
       if (error instanceof McpConnectionClosedError) {
@@ -1223,6 +1341,7 @@ const server = createServer(async (request, response) => {
       }
 
       const runtimeError = getRuntimeError(error);
+      logConnectionDiagnostic("mcp.capabilities.failure", connection, startedAt, error);
       sendJson(request, response, runtimeError.status, runtimeError.body);
     }
     return;
@@ -1398,16 +1517,20 @@ const server = createServer(async (request, response) => {
 
     let mcpConnection: McpConnection;
     let discoveredTools: Awaited<ReturnType<McpConnection["capabilities"]>>["tools"];
+    const startedAt = Date.now();
+    logConnectionDiagnostic("mcp.tool-discovery.start", connection, startedAt);
 
     try {
       mcpConnection = await getMcpConnection(connection);
       discoveredTools = (await mcpConnection.capabilities()).tools;
+      logConnectionDiagnostic("mcp.tool-discovery.success", connection, startedAt);
     } catch (error) {
       if (error instanceof McpConnectionClosedError) {
         closeMcpConnection(connection.id);
       }
 
       const runtimeError = getRuntimeError(error);
+      logConnectionDiagnostic("mcp.tool-discovery.failure", connection, startedAt, error);
       sendJson(request, response, runtimeError.status, runtimeError.body);
       return;
     }

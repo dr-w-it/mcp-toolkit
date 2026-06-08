@@ -241,12 +241,16 @@ export interface ReplayToolCallResponse {
 }
 
 export type RuntimeErrorCode =
+  | "authentication_failed"
+  | "authentication_required"
   | "connection_not_found"
+  | "expired_token"
   | "invalid_connection_profile"
   | "invalid_json"
   | "invalid_mcp_command"
   | "invalid_mcp_url"
   | "invalid_tool_input"
+  | "insufficient_scope"
   | "mcp_connection_closed"
   | "mcp_startup_failed"
   | "mcp_tool_result_error"

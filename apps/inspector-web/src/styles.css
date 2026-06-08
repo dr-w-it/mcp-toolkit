@@ -1187,6 +1187,57 @@ textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
+.capability-error-panel {
+  display: grid;
+  gap: 10px;
+  margin: 10px;
+  border: 1px solid var(--color-warning-border-muted);
+  border-radius: 6px;
+  background: var(--color-warning-softer);
+  padding: 12px;
+  color: var(--color-text-primary);
+}
+
+.capability-error-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.capability-error-heading svg {
+  color: var(--color-warning);
+}
+
+.capability-error-heading div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.capability-error-heading small {
+  color: var(--color-warning);
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.capability-error-panel p,
+.capability-error-panel li {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.capability-error-panel ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
 .detail-pane {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

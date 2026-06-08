@@ -800,8 +800,10 @@ returns an error result or fails during execution:
 ```
 
 Known runtime error codes include `invalid_json`, `connection_not_found`,
-`tool_not_found`, `replay_request_not_found`, `mcp_startup_failed`,
-`mcp_connection_closed`, `timeout`, `schema_validation_failed`,
-`mcp_transport_failed`, `invalid_tool_input`, and `unknown_runtime_error`. Use
-appropriate HTTP status codes for transport-level failures such as invalid JSON,
-missing records, or unsupported endpoints.
+`tool_not_found`, `replay_request_not_found`, `authentication_required`,
+`authentication_failed`, `expired_token`, `insufficient_scope`,
+`mcp_startup_failed`, `mcp_connection_closed`, `timeout`,
+`schema_validation_failed`, `mcp_transport_failed`, `invalid_tool_input`, and
+`unknown_runtime_error`. Use appropriate HTTP status codes for transport-level
+failures such as invalid JSON, missing records, authentication challenges, or
+unsupported endpoints.

@@ -53,6 +53,7 @@ import { createThemeStore } from "./themeStore.js";
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
 const webPort = process.env["INSPECTOR_WEB_PORT"] ?? "5000";
+const oauthCallbackUrl = process.env["INSPECTOR_OAUTH_CALLBACK_URL"]?.trim();
 const connectionProfileStore = createConnectionProfileStore(
   process.env["INSPECTOR_CONNECTIONS_PATH"] ?? ".mcp-inspector/connections.json",
 );
@@ -193,6 +194,56 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
+function redactOAuthDiagnostic(value: string) {
+  return value
+    .replaceAll(/code=([^&\s]+)/gi, "code=[redacted]")
+    .replaceAll(/code_verifier=([^&\s]+)/gi, "code_verifier=[redacted]")
+    .replaceAll(/client_secret=([^&\s]+)/gi, "client_secret=[redacted]")
+    .replaceAll(/refresh_token=([^&\s]+)/gi, "refresh_token=[redacted]")
+    .replaceAll(/access_token=([^&\s]+)/gi, "access_token=[redacted]")
+    .replaceAll(/id_token=([^&\s]+)/gi, "id_token=[redacted]");
+}
+
+function hashForLog(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  let hash = 0x811c9dc5;
+
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function urlLogFields(value: string): {
+  queryParamCount: number;
+  queryParamNames: string[];
+  urlOrigin: string | null;
+  urlPath: string | null;
+} {
+  try {
+    const parsedUrl = new URL(value);
+
+    return {
+      urlOrigin: parsedUrl.origin,
+      urlPath: parsedUrl.pathname,
+      queryParamNames: [...new Set([...parsedUrl.searchParams.keys()])].sort(),
+      queryParamCount: [...parsedUrl.searchParams.keys()].length,
+    };
+  } catch {
+    return {
+      urlOrigin: null,
+      urlPath: null,
+      queryParamNames: [],
+      queryParamCount: 0,
+    };
+  }
+}
+
 function getRuntimeOrigin(request: IncomingMessage) {
   const requestHost = request.headers.host;
   const publicHost =
@@ -204,6 +255,10 @@ function getRuntimeOrigin(request: IncomingMessage) {
 }
 
 function getOAuthCallbackUrl(request: IncomingMessage) {
+  if (oauthCallbackUrl) {
+    return oauthCallbackUrl;
+  }
+
   return `${getRuntimeOrigin(request)}/oauth/callback`;
 }
 
@@ -1181,7 +1236,28 @@ const server = createServer(async (request, response) => {
     const state = url.searchParams.get("state");
     const error = url.searchParams.get("error");
 
+    console.info(
+      JSON.stringify({
+        event: "mcp.oauth.callback.received",
+        callbackHost: request.headers.host ?? null,
+        codeHash: hashForLog(code),
+        hasCode: Boolean(code),
+        hasError: Boolean(error),
+        hasState: Boolean(state),
+        queryParamNames: [...new Set([...url.searchParams.keys()])].sort(),
+        stateHash: hashForLog(state),
+      }),
+    );
+
     if (error) {
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.callback.authorization_error",
+          callbackHost: request.headers.host ?? null,
+          error: redactOAuthDiagnostic(error),
+          stateHash: hashForLog(state),
+        }),
+      );
       sendHtml(
         response,
         400,
@@ -1192,6 +1268,15 @@ const server = createServer(async (request, response) => {
     }
 
     if (!code || !state) {
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.callback.invalid",
+          callbackHost: request.headers.host ?? null,
+          hasCode: Boolean(code),
+          hasState: Boolean(state),
+          queryParamNames: [...new Set([...url.searchParams.keys()])].sort(),
+        }),
+      );
       sendHtml(
         response,
         400,
@@ -1213,6 +1298,15 @@ const server = createServer(async (request, response) => {
       const mcpConnection = await getMcpConnection(connection);
       await mcpConnection.capabilities();
 
+      console.info(
+        JSON.stringify({
+          event: "mcp.oauth.callback.success",
+          connectionId,
+          codeHash: hashForLog(code),
+          stateHash: hashForLog(state),
+        }),
+      );
+
       sendHtml(
         response,
         200,
@@ -1221,10 +1315,17 @@ const server = createServer(async (request, response) => {
       );
     } catch (error) {
       const runtimeError = getRuntimeError(error);
+      const diagnostic =
+        error instanceof Error
+          ? redactOAuthDiagnostic(error.message)
+          : "Unknown OAuth callback failure";
       console.warn(
         JSON.stringify({
           event: "mcp.oauth.callback.failure",
+          codeHash: hashForLog(code),
+          diagnostic,
           errorCode: runtimeError.code,
+          stateHash: hashForLog(state),
           status: runtimeError.status,
         }),
       );
@@ -1315,9 +1416,31 @@ const server = createServer(async (request, response) => {
 
     try {
       closeMcpConnection(connection.id);
+      const callbackUrl = getOAuthCallbackUrl(request);
+      console.info(
+        JSON.stringify({
+          event: "mcp.oauth.authorize.start",
+          callbackUrl,
+          connectionId: connection.id,
+          targetUrl: connection.url ?? null,
+          transport: connection.transport,
+        }),
+      );
       const authorization = await mcpClient.startOAuthAuthorization(connection, {
-        callbackUrl: getOAuthCallbackUrl(request),
+        callbackUrl,
       });
+      const authorizationUrlFields = urlLogFields(authorization.authorizationUrl);
+      console.info(
+        JSON.stringify({
+          event: "mcp.oauth.authorize.ready",
+          authorizationUrl: authorizationUrlFields,
+          callbackUrl: authorization.callbackUrl,
+          connectionId: connection.id,
+          hasResource: authorizationUrlFields.queryParamNames.includes("resource"),
+          hasScope: authorizationUrlFields.queryParamNames.includes("scope"),
+          stateHash: hashForLog(authorization.state),
+        }),
+      );
       const body: StartOAuthAuthorizationResponse = {
         authorizationUrl: authorization.authorizationUrl,
         callbackUrl: authorization.callbackUrl,
@@ -1326,6 +1449,19 @@ const server = createServer(async (request, response) => {
       sendJson(request, response, 200, body);
     } catch (error) {
       const runtimeError = getRuntimeError(error);
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.authorize.failure",
+          connectionId: connection.id,
+          diagnostic:
+            error instanceof Error
+              ? redactOAuthDiagnostic(error.message)
+              : "Unknown OAuth authorization failure",
+          errorCode: runtimeError.code,
+          status: runtimeError.status,
+          targetUrl: connection.url ?? null,
+        }),
+      );
       sendJson(request, response, runtimeError.status, runtimeError.body);
     }
     return;

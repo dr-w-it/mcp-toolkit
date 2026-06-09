@@ -349,6 +349,12 @@ stores resulting OAuth client information and tokens in runtime memory, and
 then reconnects to the MCP server. The callback returns a small HTML success or
 failure page for the browser tab.
 
+This endpoint is the MCP client callback. It is distinct from any callback the
+MCP server itself exposes for an upstream identity provider. For example, a
+local MCP server may use `http://localhost:8080/oauth/callback` as its Microsoft
+redirect URI, then redirect back to MCP Toolkit's runtime callback with the MCP
+authorization code.
+
 OAuth support currently applies to Streamable HTTP profiles. Legacy SSE
 profiles continue to support static headers only. OAuth client registrations,
 tokens, refresh tokens, discovery state, authorization codes, and PKCE
@@ -356,6 +362,16 @@ verifiers are not returned by runtime APIs, traces, history responses, trace
 exports, connection list responses, or logs. OAuth state is runtime-memory only
 and is cleared on runtime restart or when the connection profile is updated or
 deleted.
+
+By default, the callback URL is derived from the runtime request host, for
+example `http://127.0.0.1:8787/oauth/callback`. If a local authorization server
+only allow-lists a different loopback hostname, set
+`INSPECTOR_OAUTH_CALLBACK_URL` to the exact callback URL before starting the
+runtime:
+
+```sh
+INSPECTOR_OAUTH_CALLBACK_URL=http://localhost:8787/oauth/callback ./dev.sh runtime
+```
 
 ## Tool Calls
 

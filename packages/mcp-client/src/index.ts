@@ -23,7 +23,11 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type {
+  FetchLike,
+  Transport,
+  TransportSendOptions,
+} from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage, RequestId } from "@modelcontextprotocol/sdk/types.js";
 
 export interface McpClient {
@@ -101,6 +105,41 @@ interface OAuthSession {
   pendingTransport?: StreamableHTTPClientTransport;
   provider: RuntimeOAuthClientProvider;
   state: string;
+}
+
+function hashForLog(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  let hash = 0x811c9dc5;
+
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function urlLogFields(value: string | URL) {
+  try {
+    const parsedUrl = new URL(value);
+
+    return {
+      urlOrigin: parsedUrl.origin,
+      urlPath: parsedUrl.pathname,
+      queryParamNames: [...new Set([...parsedUrl.searchParams.keys()])].sort(),
+      queryParamCount: [...parsedUrl.searchParams.keys()].length,
+    };
+  } catch {
+    return {
+      urlOrigin: null,
+      urlPath: null,
+      queryParamNames: [],
+      queryParamCount: 0,
+    };
+  }
 }
 
 interface CapturedMessage {
@@ -188,6 +227,7 @@ class RuntimeOAuthClientProvider implements OAuthClientProvider {
   private clientInformationValue?: OAuthClientInformationMixed;
   private codeVerifierValue?: string;
   private discoveryStateValue?: OAuthDiscoveryState;
+  private tokenErrorDiagnosticValue?: string;
   private tokensValue?: OAuthTokens;
 
   constructor(
@@ -206,7 +246,7 @@ class RuntimeOAuthClientProvider implements OAuthClientProvider {
       grant_types: ["authorization_code", "refresh_token"],
       redirect_uris: [this.callbackUrl],
       response_types: ["code"],
-      token_endpoint_auth_method: "client_secret_post",
+      token_endpoint_auth_method: "none",
     };
   }
 
@@ -228,14 +268,49 @@ class RuntimeOAuthClientProvider implements OAuthClientProvider {
 
   saveTokens(tokens: OAuthTokens): void {
     this.tokensValue = tokens;
+    console.info(
+      JSON.stringify({
+        event: "mcp.oauth.tokens.saved",
+        hasAccessToken: Boolean(tokens.access_token),
+        hasRefreshToken: Boolean(tokens.refresh_token),
+        stateHash: hashForLog(this.stateValue),
+        tokenType: tokens.token_type ?? null,
+      }),
+    );
+  }
+
+  recordTokenEndpointError(status: number, body: string): void {
+    if (this.tokenErrorDiagnosticValue) {
+      return;
+    }
+
+    this.tokenErrorDiagnosticValue = `OAuth token endpoint returned HTTP ${status}: ${sanitizeOAuthDiagnosticBody(body)}`;
+  }
+
+  tokenErrorDiagnostic(): string | undefined {
+    return this.tokenErrorDiagnosticValue;
   }
 
   redirectToAuthorization(authorizationUrl: URL): void {
+    console.info(
+      JSON.stringify({
+        event: "mcp.oauth.redirect.ready",
+        authorizationUrl: urlLogFields(authorizationUrl),
+        stateHash: hashForLog(this.stateValue),
+      }),
+    );
     this.onRedirect(authorizationUrl);
   }
 
   saveCodeVerifier(codeVerifier: string): void {
     this.codeVerifierValue = codeVerifier;
+    console.info(
+      JSON.stringify({
+        event: "mcp.oauth.pkce.saved",
+        codeVerifierHash: hashForLog(codeVerifier),
+        stateHash: hashForLog(this.stateValue),
+      }),
+    );
   }
 
   codeVerifier(): string {
@@ -247,6 +322,14 @@ class RuntimeOAuthClientProvider implements OAuthClientProvider {
   }
 
   invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier" | "discovery"): void {
+    console.warn(
+      JSON.stringify({
+        event: "mcp.oauth.credentials.invalidate",
+        scope,
+        stateHash: hashForLog(this.stateValue),
+      }),
+    );
+
     if (scope === "all" || scope === "client") {
       this.clientInformationValue = undefined;
     }
@@ -279,7 +362,7 @@ export class DefaultMcpClient implements McpClient {
 
   async connect(profile: ConnectionProfile): Promise<McpConnection> {
     const transport = new CapturingTransport(
-      createTransport(profile, this.oauthSessions.get(profile.id)?.provider),
+      createTransport(profile, this.getAuthProviderForConnect(profile.id)),
     );
     const client = new Client({
       name: "mcp-inspector-runtime",
@@ -316,6 +399,15 @@ export class DefaultMcpClient implements McpClient {
     }
 
     const state = crypto.randomUUID();
+    console.info(
+      JSON.stringify({
+        event: "mcp.oauth.session.start",
+        callbackUrl: options.callbackUrl,
+        connectionId: profile.id,
+        stateHash: hashForLog(state),
+        targetUrl: profile.url ?? null,
+      }),
+    );
     const provider = new RuntimeOAuthClientProvider(
       options.callbackUrl,
       state,
@@ -327,6 +419,14 @@ export class DefaultMcpClient implements McpClient {
         }
 
         session.authorizationUrl = authorizationUrl.toString();
+        console.info(
+          JSON.stringify({
+            event: "mcp.oauth.authorization_url.captured",
+            authorizationUrl: urlLogFields(authorizationUrl),
+            connectionId: profile.id,
+            stateHash: hashForLog(state),
+          }),
+        );
       },
     );
     const transport = createStreamableHttpTransport(profile, provider);
@@ -353,6 +453,15 @@ export class DefaultMcpClient implements McpClient {
       const authorizationUrl = session?.authorizationUrl;
 
       if (error instanceof UnauthorizedError && authorizationUrl) {
+        console.info(
+          JSON.stringify({
+            event: "mcp.oauth.session.authorization_required",
+            authorizationUrl: urlLogFields(authorizationUrl),
+            callbackUrl: options.callbackUrl,
+            connectionId: profile.id,
+            stateHash: hashForLog(state),
+          }),
+        );
         return {
           authorizationUrl,
           callbackUrl: options.callbackUrl,
@@ -364,6 +473,14 @@ export class DefaultMcpClient implements McpClient {
       this.clearOAuthSession(profile.id);
       const message =
         error instanceof Error ? error.message : "Failed to start OAuth authorization";
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.session.start_failure",
+          connectionId: profile.id,
+          diagnostic: message,
+          stateHash: hashForLog(state),
+        }),
+      );
       throw new McpConnectionStartupError(message);
     }
 
@@ -377,8 +494,31 @@ export class DefaultMcpClient implements McpClient {
   ): Promise<string> {
     const connectionId = this.oauthStates.get(state);
     const session = connectionId ? this.oauthSessions.get(connectionId) : undefined;
+    const stateHash = hashForLog(state);
+    const codeHash = hashForLog(authorizationCode);
+
+    console.info(
+      JSON.stringify({
+        event: "mcp.oauth.finish_auth.start",
+        codeHash,
+        connectionId: connectionId ?? null,
+        hasSession: Boolean(session),
+        stateHash,
+      }),
+    );
 
     if (!connectionId || !session || session.state !== state || !session.pendingTransport) {
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.finish_auth.session_missing",
+          codeHash,
+          connectionId: connectionId ?? null,
+          hasConnectionId: Boolean(connectionId),
+          hasPendingTransport: Boolean(session?.pendingTransport),
+          hasSession: Boolean(session),
+          stateHash,
+        }),
+      );
       throw new McpOAuthAuthorizationError("OAuth authorization session was not found");
     }
 
@@ -387,10 +527,29 @@ export class DefaultMcpClient implements McpClient {
       await session.pendingTransport.close().catch(() => undefined);
       session.pendingTransport = undefined;
       session.authorizationUrl = undefined;
+      console.info(
+        JSON.stringify({
+          event: "mcp.oauth.finish_auth.success",
+          codeHash,
+          connectionId,
+          stateHash,
+        }),
+      );
       return connectionId;
     } catch (error) {
       this.clearOAuthSession(connectionId);
-      const message = error instanceof Error ? error.message : "OAuth authorization failed";
+      const message =
+        session.provider.tokenErrorDiagnostic() ??
+        (error instanceof Error ? error.message : "OAuth authorization failed");
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.finish_auth.failure",
+          codeHash,
+          connectionId,
+          diagnostic: message,
+          stateHash,
+        }),
+      );
       throw new McpOAuthAuthorizationError(message);
     }
   }
@@ -404,6 +563,16 @@ export class DefaultMcpClient implements McpClient {
     }
 
     this.oauthSessions.delete(connectionId);
+  }
+
+  private getAuthProviderForConnect(connectionId: string): OAuthClientProvider | undefined {
+    const session = this.oauthSessions.get(connectionId);
+
+    if (!session || session.pendingTransport) {
+      return undefined;
+    }
+
+    return session.provider;
   }
 }
 
@@ -563,8 +732,60 @@ function createStreamableHttpTransport(
 ): StreamableHTTPClientTransport {
   return new StreamableHTTPClientTransport(resolveRemoteUrl(profile), {
     authProvider,
+    fetch: createOAuthDiagnosticFetch(authProvider),
     requestInit: createRemoteRequestInit(profile),
   });
+}
+
+function createOAuthDiagnosticFetch(authProvider?: OAuthClientProvider): FetchLike | undefined {
+  if (!(authProvider instanceof RuntimeOAuthClientProvider)) {
+    return undefined;
+  }
+
+  return async (url, init) => {
+    const response = await fetch(url, init);
+
+    if (!response.ok && isOAuthTokenRequest(url, init)) {
+      const body = await response
+        .clone()
+        .text()
+        .catch(() => "");
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.token.failure",
+          body: sanitizeOAuthDiagnosticBody(body),
+          status: response.status,
+          tokenUrl: urlLogFields(url),
+        }),
+      );
+      authProvider.recordTokenEndpointError(response.status, body);
+    }
+
+    return response;
+  };
+}
+
+function isOAuthTokenRequest(url: string | URL, init?: RequestInit) {
+  const method = init?.method?.toUpperCase() ?? "GET";
+
+  if (method !== "POST") {
+    return false;
+  }
+
+  try {
+    return new URL(url).pathname.endsWith("/oauth/token");
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeOAuthDiagnosticBody(body: string) {
+  return body
+    .slice(0, 1_000)
+    .replaceAll(/"access_token"\s*:\s*"[^"]+"/gi, '"access_token":"[redacted]"')
+    .replaceAll(/"refresh_token"\s*:\s*"[^"]+"/gi, '"refresh_token":"[redacted]"')
+    .replaceAll(/"id_token"\s*:\s*"[^"]+"/gi, '"id_token":"[redacted]"')
+    .replaceAll(/"client_secret"\s*:\s*"[^"]+"/gi, '"client_secret":"[redacted]"');
 }
 
 function resolveStdioCommand(profile: ConnectionProfile): { command: string; args: string[] } {

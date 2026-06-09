@@ -60,6 +60,27 @@ the MCP SDK transport, stores OAuth session data in memory, and reconnects the
 selected MCP profile. Refresh tokens are reused by the SDK-backed provider while
 the runtime process remains alive.
 
+This callback is the MCP client callback. Some MCP servers also expose their own
+callback, such as `http://localhost:8080/oauth/callback`, for an upstream
+identity provider like Microsoft. In that setup the browser first returns to the
+MCP server callback, then the MCP server redirects back to the MCP client
+callback below. Do not point MCP Toolkit directly at the MCP server's upstream
+identity-provider callback.
+
+The callback URL defaults to the local runtime host used by the web UI request.
+For example, a UI configured with `http://127.0.0.1:8787` uses:
+
+```text
+http://127.0.0.1:8787/oauth/callback
+```
+
+If the authorization server allow-lists `localhost` but not `127.0.0.1`, start
+the runtime with an explicit callback:
+
+```sh
+INSPECTOR_OAUTH_CALLBACK_URL=http://localhost:8787/oauth/callback ./dev.sh runtime
+```
+
 OAuth state is local and process-only in this implementation. Client
 registrations, access tokens, refresh tokens, authorization codes, PKCE
 verifiers, and discovery state are cleared on runtime restart and when the

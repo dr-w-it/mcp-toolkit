@@ -122,6 +122,10 @@ const responsePanelDefaultHeight = 260;
 const responsePanelMinHeight = 160;
 const responsePanelMaxHeight = 720;
 const requestEditorMinHeight = 180;
+const jsonTreeMaxChildrenPerNode = 100;
+const jsonTreeDefaultExpandedPathLimit = 120;
+const jsonTreeExpandedPathLimit = 500;
+const jsonPrimitivePreviewMaxLength = 12_000;
 const defaultSidebarSectionState: SidebarSectionState = {
   connections: false,
   savedRequests: false,
@@ -397,12 +401,24 @@ function getJsonEntries(value: unknown): [string, unknown][] {
   return [];
 }
 
+function getJsonEntryCount(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+
+  if (isJsonObject(value)) {
+    return Object.keys(value).length;
+  }
+
+  return 0;
+}
+
 function getJsonPath(parentPath: string, key: string, parentValue: unknown) {
   return Array.isArray(parentValue) ? `${parentPath}[${key}]` : `${parentPath}.${key}`;
 }
 
 function getJsonContainerSummary(value: unknown) {
-  const size = getJsonEntries(value).length;
+  const size = getJsonEntryCount(value);
 
   if (Array.isArray(value)) {
     return size === 1 ? "Array - 1 item" : `Array - ${size} items`;
@@ -411,11 +427,15 @@ function getJsonContainerSummary(value: unknown) {
   return size === 1 ? "Object - 1 key" : `Object - ${size} keys`;
 }
 
-function collectExpandedJsonPaths(value: unknown, maxDepth = Number.POSITIVE_INFINITY) {
+function collectExpandedJsonPaths(
+  value: unknown,
+  maxDepth = Number.POSITIVE_INFINITY,
+  maxPaths = jsonTreeExpandedPathLimit,
+) {
   const expandedPaths = new Set<string>();
 
   function visit(currentValue: unknown, path: string, depth: number) {
-    if (!isJsonContainer(currentValue)) {
+    if (!isJsonContainer(currentValue) || expandedPaths.size >= maxPaths) {
       return;
     }
 
@@ -426,6 +446,10 @@ function collectExpandedJsonPaths(value: unknown, maxDepth = Number.POSITIVE_INF
     }
 
     for (const [key, childValue] of getJsonEntries(currentValue)) {
+      if (expandedPaths.size >= maxPaths) {
+        return;
+      }
+
       visit(childValue, getJsonPath(path, key, currentValue), depth + 1);
     }
   }
@@ -448,7 +472,10 @@ function collectDefaultResponsePaths(value: unknown) {
   }
 
   function visitResult(currentValue: unknown, path: string, depth: number) {
-    if (!isJsonContainer(currentValue)) {
+    if (
+      !isJsonContainer(currentValue) ||
+      expandedPaths.size >= jsonTreeDefaultExpandedPathLimit
+    ) {
       return;
     }
 
@@ -459,6 +486,10 @@ function collectDefaultResponsePaths(value: unknown) {
     }
 
     for (const [key, childValue] of getJsonEntries(currentValue)) {
+      if (expandedPaths.size >= jsonTreeDefaultExpandedPathLimit) {
+        return;
+      }
+
       visitResult(childValue, getJsonPath(path, key, currentValue), depth + 1);
     }
   }
@@ -470,6 +501,13 @@ function collectDefaultResponsePaths(value: unknown) {
 function formatJsonPrimitive(value: unknown) {
   if (value === null) {
     return "null";
+  }
+
+  if (typeof value === "string" && value.length > jsonPrimitivePreviewMaxLength) {
+    const truncatedLength = value.length - jsonPrimitivePreviewMaxLength;
+    return JSON.stringify(
+      `${value.slice(0, jsonPrimitivePreviewMaxLength)}... [truncated ${truncatedLength} chars]`,
+    );
   }
 
   if (typeof value === "string") {
@@ -897,7 +935,9 @@ function JsonTreeNode({
 }: JsonTreeNodeProps) {
   const isContainer = isJsonContainer(value);
   const isExpanded = expandedPaths.has(path);
-  const entries = getJsonEntries(value);
+  const entries = isExpanded ? getJsonEntries(value) : [];
+  const visibleEntries = entries.slice(0, jsonTreeMaxChildrenPerNode);
+  const hiddenEntryCount = Math.max(0, entries.length - visibleEntries.length);
   const valueType = Array.isArray(value) ? "array" : isJsonObject(value) ? "object" : "value";
 
   if (!isContainer) {
@@ -934,16 +974,26 @@ function JsonTreeNode({
       {isExpanded ? (
         <div className="json-tree-children" role="group">
           {entries.length > 0 ? (
-            entries.map(([key, childValue]) => (
-              <JsonTreeNode
-                expandedPaths={expandedPaths}
-                key={getJsonPath(path, key, value)}
-                name={key}
-                onToggle={onToggle}
-                path={getJsonPath(path, key, value)}
-                value={childValue}
-              />
-            ))
+            <>
+              {visibleEntries.map(([key, childValue]) => (
+                <JsonTreeNode
+                  expandedPaths={expandedPaths}
+                  key={getJsonPath(path, key, value)}
+                  name={key}
+                  onToggle={onToggle}
+                  path={getJsonPath(path, key, value)}
+                  value={childValue}
+                />
+              ))}
+              {hiddenEntryCount > 0 ? (
+                <div className="json-tree-row leaf truncated">
+                  <span className="json-tree-spacer" />
+                  <span className="json-value json-value-null">
+                    {hiddenEntryCount} more entries hidden
+                  </span>
+                </div>
+              ) : null}
+            </>
           ) : (
             <div className="json-tree-row leaf empty">
               <span className="json-tree-spacer" />
@@ -1282,7 +1332,10 @@ export function App() {
     toolExecution?.response.durationMs ??
     selectedTraceEntry?.response?.durationMs ??
     selectedTraceEntry?.trace.durationMs;
-  const responsePayloadText = responsePayload ? formatJson(responsePayload) : "";
+  const responsePayloadText = useMemo(
+    () => (responsePayload ? formatJson(responsePayload) : ""),
+    [responsePayload],
+  );
   const responseErrorSummary = getResponseErrorSummary(responseStatus, responsePayload);
 
   const selectConnectionId = useCallback((connectionId: string | null) => {

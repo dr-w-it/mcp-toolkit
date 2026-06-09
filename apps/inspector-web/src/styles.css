@@ -1889,8 +1889,8 @@ textarea::placeholder {
 
 .json-tree {
   display: grid;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  min-width: 0;
   color: var(--color-code-text);
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -1921,8 +1921,8 @@ textarea::placeholder {
 .json-tree-node,
 .json-tree-children {
   display: grid;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  min-width: 0;
 }
 
 .json-tree-children {
@@ -1933,8 +1933,8 @@ textarea::placeholder {
 
 .json-tree-row {
   display: flex;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  min-width: 0;
   min-height: 28px;
   align-items: center;
   justify-content: flex-start;
@@ -1943,7 +1943,7 @@ textarea::placeholder {
   background: transparent;
   padding: 0 6px;
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .json-tree-row:hover:not(:disabled) {
@@ -1981,9 +1981,11 @@ textarea::placeholder {
 }
 
 .json-value {
-  flex: 0 0 auto;
-  white-space: pre;
-  word-break: normal;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .json-value-string {

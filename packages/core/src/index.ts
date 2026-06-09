@@ -38,6 +38,11 @@ export interface DeleteConnectionProfileResponse {
   deletedId: string;
 }
 
+export interface StartOAuthAuthorizationResponse {
+  authorizationUrl: string;
+  callbackUrl: string;
+}
+
 export interface ToolDefinition {
   name: string;
   description?: string;

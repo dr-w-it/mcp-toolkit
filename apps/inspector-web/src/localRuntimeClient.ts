@@ -22,6 +22,7 @@ import type {
   RuntimeErrorResponse,
   RuntimeHealthResponse,
   RuntimeThemeResponse,
+  StartOAuthAuthorizationResponse,
   UpdateConnectionProfileRequest,
   UpdateConnectionProfileResponse,
   UpdateSavedRequestRequest,
@@ -103,6 +104,17 @@ export class LocalRuntimeClient {
   ): Promise<GetConnectionCapabilitiesResponse> {
     return this.getJson<GetConnectionCapabilitiesResponse>(
       `/connections/${encodeURIComponent(connectionId)}/capabilities`,
+      signal,
+    );
+  }
+
+  startOAuthAuthorization(
+    connectionId: string,
+    signal?: AbortSignal,
+  ): Promise<StartOAuthAuthorizationResponse> {
+    return this.postJson<StartOAuthAuthorizationResponse>(
+      `/connections/${encodeURIComponent(connectionId)}/oauth/authorize`,
+      {},
       signal,
     );
   }

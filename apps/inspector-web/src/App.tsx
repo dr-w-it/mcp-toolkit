@@ -213,6 +213,10 @@ function getRuntimeDisplayError(error: unknown): RuntimeDisplayError {
   };
 }
 
+function wait(delayMs: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs));
+}
+
 function createBlankRow(prefix: string): KeyValueRow {
   return {
     id: `${prefix}-${crypto.randomUUID()}`,
@@ -1011,6 +1015,10 @@ export function App() {
   const [toolExecutionError, setToolExecutionError] = useState<RuntimeDisplayError | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isReplayingTool, setIsReplayingTool] = useState(false);
+  const [isAuthorizingConnection, setIsAuthorizingConnection] = useState(false);
+  const [oauthAuthorizationStatus, setOauthAuthorizationStatus] = useState<string | null>(
+    null,
+  );
   const [isToolActionMenuOpen, setIsToolActionMenuOpen] = useState(false);
   const [isDetailDescriptionOpen, setIsDetailDescriptionOpen] = useState(false);
   const [isSaveRequestComposerOpen, setIsSaveRequestComposerOpen] = useState(false);
@@ -1081,6 +1089,10 @@ export function App() {
     schemas: schemas.length,
     tools: runtimeData.capabilities.tools.length,
   };
+  const canAuthorizeSelectedConnection =
+    runtimeData.source === "runtime" &&
+    runtimeData.capabilityError?.code === "authentication_required" &&
+    selectedConnection?.transport === "http";
   const selectedTool =
     runtimeData.capabilities.tools.find(
       (tool) => tool.name === selectedCapabilityKeys.tools,
@@ -1688,6 +1700,7 @@ export function App() {
   }
 
   async function loadConnectionCapabilities(connectionId: string) {
+    setOauthAuthorizationStatus(null);
     setRuntimeData((currentData) => ({
       ...currentData,
       capabilities: createEmptyCapabilitySummary(connectionId),
@@ -1758,6 +1771,93 @@ export function App() {
         savedRequests: [],
       }));
       setSavedRequestError(getErrorMessage(error));
+    }
+  }
+
+  async function waitForOAuthCapabilities(connectionId: string) {
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      await wait(2_000);
+
+      if (selectedConnectionIdRef.current !== connectionId) {
+        return;
+      }
+
+      try {
+        const [capabilities, savedRequestsResponse] = await Promise.all([
+          localRuntimeClient.getCapabilities(connectionId),
+          localRuntimeClient.listSavedRequests(connectionId),
+        ]);
+
+        if (selectedConnectionIdRef.current !== connectionId) {
+          return;
+        }
+
+        setRuntimeData((currentData) => ({
+          ...currentData,
+          capabilities,
+          capabilityError: null,
+          error: null,
+          isLoading: false,
+          savedRequests: savedRequestsResponse.savedRequests,
+        }));
+        setSavedRequestError(null);
+        setOauthAuthorizationStatus("Authorized");
+        return;
+      } catch (error) {
+        if (
+          error instanceof LocalRuntimeError &&
+          error.code === "authentication_required"
+        ) {
+          setOauthAuthorizationStatus("Waiting for browser authorization");
+          continue;
+        }
+
+        setRuntimeData((currentData) => ({
+          ...currentData,
+          capabilityError: getRuntimeDisplayError(error),
+          isLoading: false,
+        }));
+        setOauthAuthorizationStatus(null);
+        return;
+      }
+    }
+
+    setOauthAuthorizationStatus("Authorization is still pending");
+  }
+
+  async function handleAuthorizeConnection(connection: ConnectionProfile) {
+    if (runtimeData.source !== "runtime" || connection.transport !== "http") {
+      return;
+    }
+
+    const authWindow = window.open("", "_blank");
+
+    setIsAuthorizingConnection(true);
+    setOauthAuthorizationStatus("Starting authorization");
+
+    try {
+      const authorization = await localRuntimeClient.startOAuthAuthorization(connection.id);
+
+      if (authWindow) {
+        authWindow.opener = null;
+        authWindow.location.href = authorization.authorizationUrl;
+      } else {
+        setOauthAuthorizationStatus("Browser blocked the authorization window");
+        return;
+      }
+
+      setOauthAuthorizationStatus("Waiting for browser authorization");
+      await waitForOAuthCapabilities(connection.id);
+    } catch (error) {
+      authWindow?.close();
+      setRuntimeData((currentData) => ({
+        ...currentData,
+        capabilityError: getRuntimeDisplayError(error),
+        isLoading: false,
+      }));
+      setOauthAuthorizationStatus(null);
+    } finally {
+      setIsAuthorizingConnection(false);
     }
   }
 
@@ -1901,6 +2001,7 @@ export function App() {
     setIsSaveRequestComposerOpen(false);
     setSaveRequestName("");
     setSaveRequestDescription("");
+    setOauthAuthorizationStatus(null);
 
     if (connectionId.startsWith("draft-")) {
       setRuntimeData((currentData) => ({
@@ -3181,6 +3282,21 @@ export function App() {
                         <li key={detail}>{detail}</li>
                       ))}
                     </ul>
+                  ) : null}
+                  {canAuthorizeSelectedConnection && selectedConnection ? (
+                    <div className="capability-error-actions">
+                      <button
+                        className="primary"
+                        disabled={isAuthorizingConnection}
+                        onClick={() => void handleAuthorizeConnection(selectedConnection)}
+                        type="button"
+                      >
+                        {isAuthorizingConnection ? "Waiting" : "Authorize"}
+                      </button>
+                      {oauthAuthorizationStatus ? (
+                        <small>{oauthAuthorizationStatus}</small>
+                      ) : null}
+                    </div>
                   ) : null}
                 </section>
               ) : filteredCapabilityItems.length > 0 ? (

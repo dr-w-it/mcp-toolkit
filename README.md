@@ -155,6 +155,8 @@ Implemented so far:
   requests, history, and replay shapes
 - real `stdio` MCP discovery and tool execution through the local runtime
 - real HTTP and SSE MCP discovery and tool execution through the local runtime
+- interactive OAuth authorization for protected Streamable HTTP MCP servers
+  through the local runtime callback flow
 - a structured JSON tool request editor and formatted/raw response viewer
 - runtime status handling with fallback development data when the local runtime
   is unavailable
@@ -174,6 +176,8 @@ Important current limits:
 
 - connection profile persistence stores local metadata only and does not store
   profile env vars or auth headers
+- OAuth client registrations, tokens, refresh tokens, discovery state, and PKCE
+  verifier state are runtime-memory only and are cleared on runtime restart
 - history and replay persistence is opt-in through `INSPECTOR_HISTORY_PATH`
 - saved requests, trace exports, and persisted history may include sensitive
   tool inputs, outputs, or raw MCP payloads entered or returned during debugging

@@ -128,8 +128,9 @@ repository rather than a sensitive working tree when possible.
 ### GitHub Copilot Remote MCP
 
 Use this when testing an authenticated remote HTTP MCP server maintained by
-GitHub. This profile requires a GitHub personal access token because MCP Toolkit
-does not currently implement the GitHub MCP one-click OAuth flow.
+GitHub. Static bearer-token profiles are still useful for repeatable tests even
+though MCP Toolkit can also start the standard OAuth flow for protected
+Streamable HTTP MCP servers that advertise it.
 
 Remote URL:
 

@@ -41,6 +41,34 @@ Legacy HTTP+SSE profile:
 }
 ```
 
+## Interactive OAuth
+
+Streamable HTTP profiles can use the standard MCP OAuth authorization code flow
+when a protected MCP server responds with an authentication challenge.
+
+The web UI shows an `Authorize` action when capability discovery returns
+`authentication_required` for an HTTP profile. Starting authorization calls the
+local runtime, opens the authorization URL in the browser, and waits for the
+authorization server to redirect back to:
+
+```text
+http://127.0.0.1:8787/oauth/callback
+```
+
+The runtime callback validates OAuth state, exchanges the authorization code via
+the MCP SDK transport, stores OAuth session data in memory, and reconnects the
+selected MCP profile. Refresh tokens are reused by the SDK-backed provider while
+the runtime process remains alive.
+
+OAuth state is local and process-only in this implementation. Client
+registrations, access tokens, refresh tokens, authorization codes, PKCE
+verifiers, and discovery state are cleared on runtime restart and when the
+connection profile is updated or deleted. They are not included in connection
+list responses, local traces, history responses, trace exports, or runtime logs.
+
+Legacy SSE OAuth is not implemented in this first pass; SSE profiles continue
+to support static request headers.
+
 ## Runtime Endpoints
 
 Start the local HTTP/SSE MCP test server:

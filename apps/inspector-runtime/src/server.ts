@@ -26,6 +26,7 @@ import type {
   RuntimeHealthResponse,
   RuntimeThemeResponse,
   SavedRequest,
+  StartOAuthAuthorizationResponse,
   TraceArtifact,
   TraceArtifactEntry,
   ToolCallRequest,
@@ -40,6 +41,7 @@ import {
   InvalidMcpUrlError,
   McpConnectionClosedError,
   McpConnectionStartupError,
+  McpOAuthAuthorizationError,
   UnsupportedMcpTransportError,
   type McpConnection,
 } from "@dr-w/mcp-client";
@@ -160,6 +162,49 @@ function sendJson(request: IncomingMessage, response: ServerResponse, status: nu
     Vary: "Origin",
   });
   response.end(JSON.stringify(body, null, 2));
+}
+
+function sendHtml(response: ServerResponse, status: number, title: string, message: string) {
+  response.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+  });
+  response.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(title)}</title>
+  </head>
+  <body>
+    <main>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(message)}</p>
+    </main>
+  </body>
+</html>`);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function getRuntimeOrigin(request: IncomingMessage) {
+  const requestHost = request.headers.host;
+  const publicHost =
+    requestHost && !requestHost.startsWith("0.0.0.0")
+      ? requestHost
+      : `127.0.0.1:${port}`;
+
+  return `http://${publicHost}`;
+}
+
+function getOAuthCallbackUrl(request: IncomingMessage) {
+  return `${getRuntimeOrigin(request)}/oauth/callback`;
 }
 
 function createRuntimeErrorBody(
@@ -299,7 +344,7 @@ function getHttpStatusFromMessage(message: string) {
 }
 
 function hasAuthenticationChallenge(message: string) {
-  return /www-authenticate|protected resource metadata|authorization required|unauthorized|invalid credentials|invalid token|expired token|insufficient scope|oauth/i.test(
+  return /www-authenticate|protected resource metadata|authorization required|unauthorized|invalid credentials|invalid[_ -]token|expired[_ -]token|insufficient[_ -]scope|oauth/i.test(
     message,
   );
 }
@@ -1020,6 +1065,10 @@ function getRuntimeError(error: unknown): RuntimeErrorResult {
     return classifyMcpStartupError(error);
   }
 
+  if (error instanceof McpOAuthAuthorizationError) {
+    return createRuntimeErrorResult(400, "authentication_failed", error.message);
+  }
+
   if (error instanceof McpConnectionClosedError) {
     return createRuntimeErrorResult(502, "mcp_connection_closed", error.message);
   }
@@ -1127,6 +1176,68 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/oauth/callback") {
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const error = url.searchParams.get("error");
+
+    if (error) {
+      sendHtml(
+        response,
+        400,
+        "Authorization Failed",
+        "The MCP server authorization flow returned an error. Return to MCP Toolkit and try again.",
+      );
+      return;
+    }
+
+    if (!code || !state) {
+      sendHtml(
+        response,
+        400,
+        "Authorization Failed",
+        "The OAuth callback was missing required authorization data.",
+      );
+      return;
+    }
+
+    try {
+      const connectionId = await mcpClient.completeOAuthAuthorization(state, code);
+      const connection = connectionProfiles.find((item) => item.id === connectionId);
+
+      if (!connection) {
+        throw new RuntimeRequestError(404, "connection_not_found", "Connection not found");
+      }
+
+      closeMcpConnection(connectionId);
+      const mcpConnection = await getMcpConnection(connection);
+      await mcpConnection.capabilities();
+
+      sendHtml(
+        response,
+        200,
+        "Authorization Complete",
+        "MCP Toolkit is authorized. You can close this tab and return to the workbench.",
+      );
+    } catch (error) {
+      const runtimeError = getRuntimeError(error);
+      console.warn(
+        JSON.stringify({
+          event: "mcp.oauth.callback.failure",
+          errorCode: runtimeError.code,
+          status: runtimeError.status,
+        }),
+      );
+      sendHtml(
+        response,
+        400,
+        "Authorization Failed",
+        "MCP Toolkit could not complete authorization. Return to the workbench and try again.",
+      );
+    }
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/connections") {
     const body: ListConnectionsResponse = {
       connections: connectionProfiles.map(toPublicConnectionProfile),
@@ -1178,6 +1289,48 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const oauthAuthorizeMatch = url.pathname.match(
+    /^\/connections\/([^/]+)\/oauth\/authorize$/,
+  );
+
+  if (request.method === "POST" && oauthAuthorizeMatch) {
+    const connectionId = decodeURIComponent(oauthAuthorizeMatch[1] ?? "");
+    const connection = connectionProfiles.find((item) => item.id === connectionId);
+
+    if (!connection) {
+      sendRuntimeError(request, response, 404, "connection_not_found", "Connection not found");
+      return;
+    }
+
+    if (connection.transport !== "http") {
+      sendRuntimeError(
+        request,
+        response,
+        400,
+        "unsupported_transport",
+        "OAuth authorization is only supported for Streamable HTTP MCP connections",
+      );
+      return;
+    }
+
+    try {
+      closeMcpConnection(connection.id);
+      const authorization = await mcpClient.startOAuthAuthorization(connection, {
+        callbackUrl: getOAuthCallbackUrl(request),
+      });
+      const body: StartOAuthAuthorizationResponse = {
+        authorizationUrl: authorization.authorizationUrl,
+        callbackUrl: authorization.callbackUrl,
+      };
+
+      sendJson(request, response, 200, body);
+    } catch (error) {
+      const runtimeError = getRuntimeError(error);
+      sendJson(request, response, runtimeError.status, runtimeError.body);
+    }
+    return;
+  }
+
   const connectionMatch = url.pathname.match(/^\/connections\/([^/]+)$/);
 
   if (request.method === "PUT" && connectionMatch) {
@@ -1219,6 +1372,7 @@ const server = createServer(async (request, response) => {
       }
 
       closeMcpConnection(profile.id);
+      mcpClient.clearOAuthSession(profile.id);
 
       const responseBody: UpdateConnectionProfileResponse = {
         connection: toPublicConnectionProfile(profile),
@@ -1308,6 +1462,7 @@ const server = createServer(async (request, response) => {
     }
 
     closeMcpConnection(connectionId);
+    mcpClient.clearOAuthSession(connectionId);
 
     const responseBody: DeleteConnectionProfileResponse = { deletedId: connectionId };
 

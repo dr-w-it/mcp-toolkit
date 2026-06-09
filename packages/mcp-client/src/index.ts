@@ -9,15 +9,31 @@ import type {
   ToolCallResponse,
   ToolDefinition,
 } from "@dr-w/core";
+import type {
+  OAuthClientProvider,
+  OAuthDiscoveryState,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type {
+  OAuthClientInformationMixed,
+  OAuthClientMetadata,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage, RequestId } from "@modelcontextprotocol/sdk/types.js";
 
 export interface McpClient {
   connect(profile: ConnectionProfile): Promise<McpConnection>;
+  clearOAuthSession(connectionId: string): void;
+  completeOAuthAuthorization(state: string, authorizationCode: string): Promise<string>;
+  startOAuthAuthorization(
+    profile: ConnectionProfile,
+    options: StartOAuthAuthorizationOptions,
+  ): Promise<StartOAuthAuthorizationResult>;
 }
 
 export interface McpConnection {
@@ -25,6 +41,16 @@ export interface McpConnection {
   capabilities(): Promise<CapabilitySummary>;
   callTool(toolName: string, input: JsonValue, requestId: string): Promise<ToolCallResponse>;
   close(): Promise<void>;
+}
+
+export interface StartOAuthAuthorizationOptions {
+  callbackUrl: string;
+}
+
+export interface StartOAuthAuthorizationResult {
+  authorizationUrl: string;
+  callbackUrl: string;
+  state: string;
 }
 
 export class UnsupportedMcpTransportError extends Error {
@@ -60,6 +86,21 @@ export class McpConnectionStartupError extends Error {
     super(message);
     this.name = "McpConnectionStartupError";
   }
+}
+
+export class McpOAuthAuthorizationError extends Error {
+  constructor(message = "OAuth authorization failed") {
+    super(message);
+    this.name = "McpOAuthAuthorizationError";
+  }
+}
+
+interface OAuthSession {
+  authorizationUrl?: string;
+  connectionId: string;
+  pendingTransport?: StreamableHTTPClientTransport;
+  provider: RuntimeOAuthClientProvider;
+  state: string;
 }
 
 interface CapturedMessage {
@@ -143,9 +184,103 @@ class CapturingTransport implements Transport {
   }
 }
 
+class RuntimeOAuthClientProvider implements OAuthClientProvider {
+  private clientInformationValue?: OAuthClientInformationMixed;
+  private codeVerifierValue?: string;
+  private discoveryStateValue?: OAuthDiscoveryState;
+  private tokensValue?: OAuthTokens;
+
+  constructor(
+    private readonly callbackUrl: string,
+    private readonly stateValue: string,
+    private readonly onRedirect: (authorizationUrl: URL) => void,
+  ) {}
+
+  get redirectUrl(): string {
+    return this.callbackUrl;
+  }
+
+  get clientMetadata(): OAuthClientMetadata {
+    return {
+      client_name: "MCP Toolkit",
+      grant_types: ["authorization_code", "refresh_token"],
+      redirect_uris: [this.callbackUrl],
+      response_types: ["code"],
+      token_endpoint_auth_method: "client_secret_post",
+    };
+  }
+
+  state(): string {
+    return this.stateValue;
+  }
+
+  clientInformation(): OAuthClientInformationMixed | undefined {
+    return this.clientInformationValue;
+  }
+
+  saveClientInformation(clientInformation: OAuthClientInformationMixed): void {
+    this.clientInformationValue = clientInformation;
+  }
+
+  tokens(): OAuthTokens | undefined {
+    return this.tokensValue;
+  }
+
+  saveTokens(tokens: OAuthTokens): void {
+    this.tokensValue = tokens;
+  }
+
+  redirectToAuthorization(authorizationUrl: URL): void {
+    this.onRedirect(authorizationUrl);
+  }
+
+  saveCodeVerifier(codeVerifier: string): void {
+    this.codeVerifierValue = codeVerifier;
+  }
+
+  codeVerifier(): string {
+    if (!this.codeVerifierValue) {
+      throw new McpOAuthAuthorizationError("OAuth code verifier is missing");
+    }
+
+    return this.codeVerifierValue;
+  }
+
+  invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier" | "discovery"): void {
+    if (scope === "all" || scope === "client") {
+      this.clientInformationValue = undefined;
+    }
+
+    if (scope === "all" || scope === "tokens") {
+      this.tokensValue = undefined;
+    }
+
+    if (scope === "all" || scope === "verifier") {
+      this.codeVerifierValue = undefined;
+    }
+
+    if (scope === "all" || scope === "discovery") {
+      this.discoveryStateValue = undefined;
+    }
+  }
+
+  saveDiscoveryState(state: OAuthDiscoveryState): void {
+    this.discoveryStateValue = state;
+  }
+
+  discoveryState(): OAuthDiscoveryState | undefined {
+    return this.discoveryStateValue;
+  }
+}
+
 export class DefaultMcpClient implements McpClient {
+  private readonly oauthSessions = new Map<string, OAuthSession>();
+  private readonly oauthStates = new Map<string, string>();
+
   async connect(profile: ConnectionProfile): Promise<McpConnection> {
-    const transport = new CapturingTransport(createTransport(profile));
+    const transport = new CapturingTransport(
+      createTransport(profile, this.oauthSessions.get(profile.id)?.provider),
+    );
     const client = new Client({
       name: "mcp-inspector-runtime",
       version: "0.0.0",
@@ -170,6 +305,105 @@ export class DefaultMcpClient implements McpClient {
     }
 
     return new DefaultMcpConnection(profile, client, transport, () => closed);
+  }
+
+  async startOAuthAuthorization(
+    profile: ConnectionProfile,
+    options: StartOAuthAuthorizationOptions,
+  ): Promise<StartOAuthAuthorizationResult> {
+    if (profile.transport !== "http") {
+      throw new UnsupportedMcpTransportError(profile.transport);
+    }
+
+    const state = crypto.randomUUID();
+    const provider = new RuntimeOAuthClientProvider(
+      options.callbackUrl,
+      state,
+      (authorizationUrl) => {
+        const session = this.oauthSessions.get(profile.id);
+
+        if (!session || session.state !== state) {
+          return;
+        }
+
+        session.authorizationUrl = authorizationUrl.toString();
+      },
+    );
+    const transport = createStreamableHttpTransport(profile, provider);
+    const capturingTransport = new CapturingTransport(transport);
+    const client = new Client({
+      name: "mcp-inspector-runtime",
+      version: "0.0.0",
+    });
+
+    this.clearOAuthSession(profile.id);
+    this.oauthSessions.set(profile.id, {
+      connectionId: profile.id,
+      pendingTransport: transport,
+      provider,
+      state,
+    });
+    this.oauthStates.set(state, profile.id);
+
+    try {
+      await client.connect(capturingTransport, { timeout: 15_000 });
+      await client.close().catch(() => undefined);
+    } catch (error) {
+      const session = this.oauthSessions.get(profile.id);
+      const authorizationUrl = session?.authorizationUrl;
+
+      if (error instanceof UnauthorizedError && authorizationUrl) {
+        return {
+          authorizationUrl,
+          callbackUrl: options.callbackUrl,
+          state,
+        };
+      }
+
+      await capturingTransport.close().catch(() => undefined);
+      this.clearOAuthSession(profile.id);
+      const message =
+        error instanceof Error ? error.message : "Failed to start OAuth authorization";
+      throw new McpConnectionStartupError(message);
+    }
+
+    this.clearOAuthSession(profile.id);
+    throw new McpOAuthAuthorizationError("OAuth authorization was not required");
+  }
+
+  async completeOAuthAuthorization(
+    state: string,
+    authorizationCode: string,
+  ): Promise<string> {
+    const connectionId = this.oauthStates.get(state);
+    const session = connectionId ? this.oauthSessions.get(connectionId) : undefined;
+
+    if (!connectionId || !session || session.state !== state || !session.pendingTransport) {
+      throw new McpOAuthAuthorizationError("OAuth authorization session was not found");
+    }
+
+    try {
+      await session.pendingTransport.finishAuth(authorizationCode);
+      await session.pendingTransport.close().catch(() => undefined);
+      session.pendingTransport = undefined;
+      session.authorizationUrl = undefined;
+      return connectionId;
+    } catch (error) {
+      this.clearOAuthSession(connectionId);
+      const message = error instanceof Error ? error.message : "OAuth authorization failed";
+      throw new McpOAuthAuthorizationError(message);
+    }
+  }
+
+  clearOAuthSession(connectionId: string): void {
+    const existingSession = this.oauthSessions.get(connectionId);
+
+    if (existingSession) {
+      this.oauthStates.delete(existingSession.state);
+      void existingSession.pendingTransport?.close().catch(() => undefined);
+    }
+
+    this.oauthSessions.delete(connectionId);
   }
 }
 
@@ -294,7 +528,10 @@ export function createMcpClient(): McpClient {
   return new DefaultMcpClient();
 }
 
-function createTransport(profile: ConnectionProfile): Transport {
+function createTransport(
+  profile: ConnectionProfile,
+  authProvider?: OAuthClientProvider,
+): Transport {
   if (profile.transport === "stdio") {
     const command = resolveStdioCommand(profile);
     const stdioTransport = new StdioClientTransport({
@@ -308,9 +545,7 @@ function createTransport(profile: ConnectionProfile): Transport {
   }
 
   if (profile.transport === "http") {
-    return new StreamableHTTPClientTransport(resolveRemoteUrl(profile), {
-      requestInit: createRemoteRequestInit(profile),
-    });
+    return createStreamableHttpTransport(profile, authProvider);
   }
 
   if (profile.transport === "sse") {
@@ -320,6 +555,16 @@ function createTransport(profile: ConnectionProfile): Transport {
   }
 
   throw new UnsupportedMcpTransportError(profile.transport);
+}
+
+function createStreamableHttpTransport(
+  profile: ConnectionProfile,
+  authProvider?: OAuthClientProvider,
+): StreamableHTTPClientTransport {
+  return new StreamableHTTPClientTransport(resolveRemoteUrl(profile), {
+    authProvider,
+    requestInit: createRemoteRequestInit(profile),
+  });
 }
 
 function resolveStdioCommand(profile: ConnectionProfile): { command: string; args: string[] } {

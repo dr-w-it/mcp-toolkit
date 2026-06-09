@@ -1238,6 +1238,18 @@ textarea::placeholder {
   padding-left: 18px;
 }
 
+.capability-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.capability-error-actions small {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
 .detail-pane {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

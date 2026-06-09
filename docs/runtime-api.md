@@ -318,6 +318,45 @@ Capabilities describe what the connected MCP server exposes. The response keeps
 tools, resources, and prompts grouped under a single connection id so the web UI
 can render a consistent inspector view.
 
+## OAuth Authorization
+
+```http
+POST /connections/:connectionId/oauth/authorize
+```
+
+Response type: `StartOAuthAuthorizationResponse`
+
+```json
+{
+  "authorizationUrl": "https://auth.example.test/authorize?client_id=...",
+  "callbackUrl": "http://127.0.0.1:8787/oauth/callback"
+}
+```
+
+This endpoint starts the standard MCP OAuth authorization code flow for
+Streamable HTTP connection profiles. It creates a runtime-local OAuth provider,
+attempts the MCP connection with that provider, and returns the authorization
+URL supplied by the SDK when user authorization is required.
+
+The browser redirects back to the runtime callback:
+
+```http
+GET /oauth/callback?code=...&state=...
+```
+
+The callback validates the state, calls the SDK transport `finishAuth(code)`,
+stores resulting OAuth client information and tokens in runtime memory, and
+then reconnects to the MCP server. The callback returns a small HTML success or
+failure page for the browser tab.
+
+OAuth support currently applies to Streamable HTTP profiles. Legacy SSE
+profiles continue to support static headers only. OAuth client registrations,
+tokens, refresh tokens, discovery state, authorization codes, and PKCE
+verifiers are not returned by runtime APIs, traces, history responses, trace
+exports, connection list responses, or logs. OAuth state is runtime-memory only
+and is cleared on runtime restart or when the connection profile is updated or
+deleted.
+
 ## Tool Calls
 
 ```http

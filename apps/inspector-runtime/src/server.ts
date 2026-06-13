@@ -52,6 +52,7 @@ import { createThemeStore } from "./themeStore.js";
 
 const port = Number.parseInt(process.env["INSPECTOR_RUNTIME_PORT"] ?? "8787", 10);
 const host = process.env["INSPECTOR_RUNTIME_HOST"] ?? "127.0.0.1";
+const runtimeMode = process.env["INSPECTOR_RUNTIME_MODE"] === "docker" ? "docker" : "host";
 const webPort = process.env["INSPECTOR_WEB_PORT"] ?? "5000";
 const oauthCallbackUrl = process.env["INSPECTOR_OAUTH_CALLBACK_URL"]?.trim();
 const connectionProfileStore = createConnectionProfileStore(
@@ -524,6 +525,39 @@ function assertHttpUrl(value: string | undefined, field: string, errors: string[
   }
 }
 
+function normalizeConnectionUrlForRuntime(
+  transport: ConnectionTransport | undefined,
+  value: string | undefined,
+) {
+  if (!value || runtimeMode !== "docker" || (transport !== "http" && transport !== "sse")) {
+    return value;
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+
+    if (
+      parsedUrl.hostname === "localhost" ||
+      parsedUrl.hostname === "127.0.0.1" ||
+      parsedUrl.hostname === "::1" ||
+      parsedUrl.hostname === "[::1]"
+    ) {
+      parsedUrl.hostname = "host.docker.internal";
+      return parsedUrl.toString();
+    }
+  } catch {
+    return value;
+  }
+
+  return value;
+}
+
+function normalizeConnectionProfileForRuntime(profile: ConnectionProfile): ConnectionProfile {
+  const url = normalizeConnectionUrlForRuntime(profile.transport, profile.url);
+
+  return url === profile.url ? profile : { ...profile, url };
+}
+
 function validateConnectionProfileRequest(
   body: unknown,
   existingProfile?: ConnectionProfile,
@@ -539,7 +573,7 @@ function validateConnectionProfileRequest(
     | ConnectionTransport
     | undefined;
   const command = readStringField(body, "command", errors);
-  const url = readStringField(body, "url", errors);
+  const rawUrl = readStringField(body, "url", errors);
   const args = readStringArrayField(body, "args", errors);
   const env = readStringRecordField(body, "env", errors);
   const headers = readStringRecordField(body, "headers", errors);
@@ -553,7 +587,7 @@ function validateConnectionProfileRequest(
       errors.push("command is required for stdio profiles");
     }
 
-    if (url) {
+    if (rawUrl) {
       errors.push("url is only supported for http and sse profiles");
     }
 
@@ -563,7 +597,7 @@ function validateConnectionProfileRequest(
   }
 
   if (transport === "http" || transport === "sse") {
-    if (!url) {
+    if (!rawUrl) {
       errors.push("url is required for http and sse profiles");
     }
 
@@ -575,7 +609,7 @@ function validateConnectionProfileRequest(
       errors.push("args are only supported for stdio profiles");
     }
 
-    assertHttpUrl(url, "url", errors);
+    assertHttpUrl(rawUrl, "url", errors);
   }
 
   if (errors.length > 0 || !name || !transport) {
@@ -583,6 +617,7 @@ function validateConnectionProfileRequest(
   }
 
   const timestamp = new Date().toISOString();
+  const url = normalizeConnectionUrlForRuntime(transport, rawUrl);
 
   return {
     args,
@@ -613,7 +648,7 @@ function hydrateConnectionProfiles(persistedProfiles: ConnectionProfile[]) {
       continue;
     }
 
-    uniquePersistedProfiles.push(profile);
+    uniquePersistedProfiles.push(normalizeConnectionProfileForRuntime(profile));
     persistedProfileIds.add(profile.id);
   }
 
@@ -1218,6 +1253,7 @@ const server = createServer(async (request, response) => {
       ok: true,
       service: "inspector-runtime",
       mode: "local",
+      runtimeMode,
     };
 
     sendJson(request, response, 200, body);

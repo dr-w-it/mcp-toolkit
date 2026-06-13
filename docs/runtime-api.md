@@ -27,9 +27,15 @@ Response type: `RuntimeHealthResponse`
 {
   "ok": true,
   "service": "inspector-runtime",
-  "mode": "local"
+  "mode": "local",
+  "runtimeMode": "host"
 }
 ```
+
+`runtimeMode` is `host` when the runtime runs directly on the developer
+machine, and `docker` when it runs inside the Compose container. In Docker mode,
+HTTP and SSE connection URLs using `localhost`, `127.0.0.1`, or `[::1]` are
+normalized to `host.docker.internal` before the profile is stored or used.
 
 ## Theme
 

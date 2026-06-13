@@ -1,5 +1,10 @@
 .DS_Store
 .codex
+.mcp-inspector
+**/.mcp-inspector
+!apps/inspector-web/.mcp-inspector
+!apps/inspector-web/.mcp-inspector/theme
+!apps/inspector-web/.mcp-inspector/theme/**
 .env
 .env.*
 !.env.example

@@ -7,7 +7,12 @@ build/
 coverage/
 *.tsbuildinfo
 *.log
+
+# Local runtime state: connection profiles, saved requests, history, and traces.
 .mcp-inspector/
+apps/inspector-runtime/.mcp-inspector/
+
+# Bundled web themes are source assets and stay tracked.
 !apps/inspector-web/.mcp-inspector/
 !apps/inspector-web/.mcp-inspector/theme/
 !apps/inspector-web/.mcp-inspector/theme/*.json

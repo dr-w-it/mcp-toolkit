@@ -203,6 +203,7 @@ export interface RuntimeHealthResponse {
   ok: true;
   service: "inspector-runtime";
   mode: "local";
+  runtimeMode: "host" | "docker";
 }
 
 export interface ThemeDefinition {

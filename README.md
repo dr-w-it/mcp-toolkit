@@ -284,8 +284,47 @@ The runtime API is exposed locally at:
 http://127.0.0.1:8787
 ```
 
+Docker Compose stores runtime data in the `inspector-runtime-data` named volume.
+Connection profiles, request history, and saved requests survive container
+restarts and rebuilds. To reset this local Docker state, stop the stack and
+remove its volumes:
+
+```sh
+docker compose down -v
+```
+
 Compose runs the runtime inside Docker and binds both services to localhost on
-the host machine. For host-native `stdio` MCP servers that need to launch local
+the host machine. In Docker mode, HTTP and SSE connection URLs entered as
+`http://localhost:8080` or `http://127.0.0.1:8080` are automatically rewritten
+to `http://host.docker.internal:8080` before the runtime stores or connects to
+the profile. This lets a containerized runtime reach MCP servers running on the
+developer machine.
+
+For `stdio` MCP servers, the configured command runs inside the runtime
+container. If the server is available through `npx`, configure the profile with
+that command. If the server is a local project on the host, mount it into the
+runtime container with a local `compose.override.yaml` file:
+
+```yaml
+services:
+  inspector-runtime:
+    volumes:
+      - /absolute/path/to/my-mcp:/mcp-server:ro
+```
+
+Then create a `stdio` connection that uses the container path:
+
+```json
+{
+  "name": "Local STDIO MCP",
+  "transport": "stdio",
+  "command": "node",
+  "args": ["/mcp-server/dist/server.js"]
+}
+```
+
+The mounted project must include the runnable files and dependencies required by
+that command. For host-native `stdio` MCP servers that need to launch local
 processes outside Docker, keep using the host runtime workflow:
 
 ```sh
@@ -303,6 +342,20 @@ If the default ports are already in use, override them through `.env` or inline:
 ```sh
 INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 VITE_INSPECTOR_RUNTIME_URL=http://127.0.0.1:18787 ./dev.sh local
 INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 ./dev.sh docker:up
+```
+
+Bundled themes are included in the Docker image and are not backed by the
+runtime data volume. For custom local themes, mount a separate read-only
+directory and point `INSPECTOR_THEMES_PATH` at it from a local
+`compose.override.yaml` file:
+
+```yaml
+services:
+  inspector-runtime:
+    environment:
+      INSPECTOR_THEMES_PATH: /custom-themes
+    volumes:
+      - ./themes:/custom-themes:ro
 ```
 
 ## Strategic Positioning

@@ -167,6 +167,18 @@ run_local() {
 }
 
 run_docker() {
+  local docker_path
+
+  for docker_path in \
+    "/usr/local/bin" \
+    "/opt/homebrew/bin" \
+    "/Applications/Docker.app/Contents/Resources/bin"
+  do
+    if [[ -x "$docker_path/docker" && ":$PATH:" != *":$docker_path:"* ]]; then
+      export PATH="$docker_path:$PATH"
+    fi
+  done
+
   require_cmd docker
   (cd "$ROOT_DIR" && docker compose up --build "$@")
 }

@@ -2694,6 +2694,11 @@ export function App() {
               {runtimeData.theme?.activeTheme.name ?? themeStatus.replace(/^Theme:\s*/, "")}
             </small>
           ) : null}
+          {runtimeData.health ? (
+            <small className="runtime-mode-status">
+              {runtimeData.health.runtimeMode === "docker" ? "Docker runtime" : "Host runtime"}
+            </small>
+          ) : null}
         </section>
 
         {themeDiagnostics.length > 0 ? (

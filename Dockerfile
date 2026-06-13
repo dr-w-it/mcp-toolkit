@@ -14,4 +14,6 @@ RUN npm ci
 
 COPY . .
 
+RUN npm run build:packages
+
 EXPOSE 5173 8787

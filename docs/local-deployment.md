@@ -60,6 +60,13 @@ port remains local-only.
 The web UI uses `http://127.0.0.1:8787` as its runtime URL because browser
 requests originate from the developer machine, not from the Docker network.
 
+The runtime advertises its execution environment through `GET /health` as
+`runtimeMode: "docker"` when it is started by Compose. In this mode, HTTP and
+SSE MCP profile URLs using `localhost`, `127.0.0.1`, or `[::1]` are normalized
+to `host.docker.internal` before the profile is stored or used. For example,
+`http://localhost:8080/mcp` becomes
+`http://host.docker.internal:8080/mcp`.
+
 When default ports are unavailable, copy `.env.example` to `.env` and change
 `INSPECTOR_WEB_PORT` or `INSPECTOR_RUNTIME_PORT`. The web service uses the
 runtime port value to build its browser-visible runtime URL.
@@ -68,6 +75,21 @@ For host-native local development, the same values can be set inline:
 
 ```sh
 INSPECTOR_WEB_PORT=15000 INSPECTOR_RUNTIME_PORT=18787 VITE_INSPECTOR_RUNTIME_URL=http://127.0.0.1:18787 ./dev.sh local
+```
+
+The Compose stack mounts the `inspector-runtime-data` named volume at the
+runtime app's `.mcp-inspector` directory. By default, Docker mode persists:
+
+- connection profile metadata in `.mcp-inspector/connections.json`
+- saved requests in `.mcp-inspector/saved-requests.json`
+- request history and replay records in `.mcp-inspector/history.json`
+
+This keeps local Docker state across container restarts and image rebuilds
+without copying host `.mcp-inspector` data into the image. To reset Docker mode
+state, stop the stack and remove its volumes:
+
+```sh
+docker compose down -v
 ```
 
 ## MCP Transport Considerations
@@ -86,6 +108,57 @@ architecture should allow more than one runtime mode:
 The UI should not care which runtime mode is used. It should only talk to the
 Inspector Runtime API.
 
+### Testing a Host HTTP MCP Server from Docker
+
+If an MCP server is running on the developer machine at:
+
+```text
+http://localhost:8080/mcp
+```
+
+the user can enter that URL in Docker mode. The runtime stores and connects to:
+
+```text
+http://host.docker.internal:8080/mcp
+```
+
+This normalization also applies to SSE URLs such as
+`http://localhost:8080/sse`.
+
+### Testing a Local STDIO MCP Server from Docker
+
+`stdio` commands are executed inside the `inspector-runtime` container. A
+command can use `npx` packages available to the container, or it can run a host
+project mounted into the container. For a local project, create a
+`compose.override.yaml` file next to `compose.yaml`:
+
+```yaml
+services:
+  inspector-runtime:
+    volumes:
+      - /absolute/path/to/my-mcp:/mcp-server:ro
+```
+
+Then configure the connection with the container path:
+
+```json
+{
+  "name": "Local STDIO MCP",
+  "transport": "stdio",
+  "command": "node",
+  "args": ["/mcp-server/dist/server.js"]
+}
+```
+
+The mounted directory must contain whatever that command needs at runtime, such
+as built JavaScript output and installed dependencies. If the MCP server must
+start processes or read files directly from the host outside the mounted
+directory, use the host runtime workflow instead:
+
+```sh
+./dev.sh runtime
+```
+
 ## Persistence
 
 Local persistence should start simple.
@@ -102,6 +175,20 @@ Avoid early:
 - required Redis
 - required external object storage
 - hosted-only trace storage
+
+Docker mode uses a named volume for runtime data. Bundled themes are kept in the
+image rather than in that volume so an empty Docker volume cannot hide the
+default theme set. To test custom local themes in Docker, mount a separate
+read-only directory and point `INSPECTOR_THEMES_PATH` at it:
+
+```yaml
+services:
+  inspector-runtime:
+    environment:
+      INSPECTOR_THEMES_PATH: /custom-themes
+    volumes:
+      - ./themes:/custom-themes:ro
+```
 
 ## Security
 

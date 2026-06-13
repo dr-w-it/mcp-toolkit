@@ -10,7 +10,19 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronRight, Copy, TriangleAlert } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  PanelBottomClose,
+  PanelBottomOpen,
+  Pencil,
+  Play,
+  Plus,
+  Server,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import type {
   CapabilitySummary,
   ConnectionProfile,
@@ -1064,7 +1076,6 @@ export function App() {
   );
   const [toolExecutionError, setToolExecutionError] = useState<RuntimeDisplayError | null>(null);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
-  const [isReplayingTool, setIsReplayingTool] = useState(false);
   const [isAuthorizingConnection, setIsAuthorizingConnection] = useState(false);
   const [oauthAuthorizationStatus, setOauthAuthorizationStatus] = useState<string | null>(
     null,
@@ -1081,14 +1092,7 @@ export function App() {
   const [executingSavedRequestId, setExecutingSavedRequestId] = useState<string | null>(null);
   const [updatingSavedRequestId, setUpdatingSavedRequestId] = useState<string | null>(null);
   const [deletingSavedRequestId, setDeletingSavedRequestId] = useState<string | null>(null);
-  const [savedRequestActionMenuId, setSavedRequestActionMenuId] = useState<string | null>(
-    null,
-  );
-  const [expandedSavedRequestId, setExpandedSavedRequestId] = useState<string | null>(
-    null,
-  );
-  const [deleteSavedRequestCandidate, setDeleteSavedRequestCandidate] =
-    useState<SavedRequest | null>(null);
+  const [editingSavedRequestId, setEditingSavedRequestId] = useState<string | null>(null);
   const [savedRequestEdits, setSavedRequestEdits] = useState<
     Record<string, SavedRequestEditDraft>
   >({});
@@ -1110,7 +1114,6 @@ export function App() {
   const [responseCopyStatus, setResponseCopyStatus] = useState<string | null>(null);
   const traceFileInputRef = useRef<HTMLInputElement | null>(null);
   const toolActionMenuRef = useRef<HTMLDivElement | null>(null);
-  const savedRequestActionMenuRef = useRef<HTMLDivElement | null>(null);
   const requestResponseFlowRef = useRef<HTMLDivElement | null>(null);
   const isLoadingSavedRequestRef = useRef(false);
 
@@ -1128,6 +1131,13 @@ export function App() {
       connections.find((connection) => connection.id === selectedConnectionId) ??
       connections[0],
     [connections, selectedConnectionId],
+  );
+  const editingConnection = useMemo(
+    () =>
+      editingConnectionId
+        ? connections.find((connection) => connection.id === editingConnectionId) ?? null
+        : null,
+    [connections, editingConnectionId],
   );
   const schemas = useMemo(
     () => getSchemaSummaries(runtimeData.capabilities),
@@ -1174,11 +1184,13 @@ export function App() {
     name.trim().length > 0 &&
     ((transport === "stdio" && command.trim().length > 0) ||
       (isRemoteTransport && url.trim().length > 0));
-  const canDeleteSelectedConnection =
+  const canDeleteEditingConnection =
     runtimeData.source === "runtime" &&
-    Boolean(selectedConnection) &&
-    !selectedConnection?.isBuiltIn &&
-    !selectedConnection?.id.startsWith("draft-");
+    Boolean(editingConnection) &&
+    !editingConnection?.isBuiltIn &&
+    !editingConnection?.id.startsWith("draft-");
+  const hasBlockingModal =
+    isComposerOpen || Boolean(deleteConnectionCandidate) || Boolean(editingSavedRequestId);
   const targetCommand = formatConnectionCommand(selectedConnection);
 
   const detailTitle =
@@ -1266,6 +1278,15 @@ export function App() {
   const loadedSavedRequest = loadedSavedRequestId
     ? runtimeData.savedRequests.find((savedRequest) => savedRequest.id === loadedSavedRequestId)
     : undefined;
+  const editingSavedRequest = editingSavedRequestId
+    ? runtimeData.savedRequests.find((savedRequest) => savedRequest.id === editingSavedRequestId)
+    : undefined;
+  const editingSavedRequestDraft = editingSavedRequest
+    ? savedRequestEdits[editingSavedRequest.id] ?? {
+        description: editingSavedRequest.description ?? "",
+        name: editingSavedRequest.name,
+      }
+    : null;
   const canSaveCurrentRequest =
     runtimeData.source === "runtime" &&
     activeCapabilityTab === "tools" &&
@@ -1305,10 +1326,6 @@ export function App() {
           selectedTraceEntry.trace,
         )
     : null;
-  const selectedReplayRequestId =
-    selectedTraceEntry?.request?.id ?? selectedTraceEntry?.trace.requestId;
-  const canReplaySelectedTrace =
-    runtimeData.source === "runtime" && Boolean(selectedReplayRequestId);
   const responsePayload = toolExecutionError
     ? createRuntimeErrorResponsePayload(toolExecutionError)
     : toolExecution
@@ -1517,7 +1534,7 @@ export function App() {
   }, [selectedTool?.name]);
 
   useEffect(() => {
-    if (!deleteConnectionCandidate && !deleteSavedRequestCandidate) {
+    if (!isComposerOpen && !deleteConnectionCandidate && !editingSavedRequestId) {
       return;
     }
 
@@ -1528,6 +1545,21 @@ export function App() {
         !deletingSavedRequestId
       ) {
         closeDeleteModal();
+        return;
+      }
+
+      if (event.key === "Escape" && isComposerOpen && !isSavingConnection) {
+        closeComposer();
+        return;
+      }
+
+      if (
+        event.key === "Escape" &&
+        editingSavedRequestId &&
+        !updatingSavedRequestId &&
+        !deletingSavedRequestId
+      ) {
+        closeSavedRequestEditModal();
       }
     }
 
@@ -1538,43 +1570,13 @@ export function App() {
     };
   }, [
     deleteConnectionCandidate,
-    deleteSavedRequestCandidate,
     deletingSavedRequestId,
+    editingSavedRequestId,
+    isComposerOpen,
     isDeletingConnection,
+    isSavingConnection,
+    updatingSavedRequestId,
   ]);
-
-  useEffect(() => {
-    if (!savedRequestActionMenuId) {
-      return;
-    }
-
-    function handlePointerDown(event: MouseEvent) {
-      const target = event.target;
-
-      if (
-        target instanceof Node &&
-        savedRequestActionMenuRef.current?.contains(target)
-      ) {
-        return;
-      }
-
-      setSavedRequestActionMenuId(null);
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setSavedRequestActionMenuId(null);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [savedRequestActionMenuId]);
 
   useEffect(() => {
     if (!isToolActionMenuOpen) {
@@ -1728,6 +1730,15 @@ export function App() {
     setEnvRows(recordToRows(connection.env, "env"));
     setHeaderRows(recordToRows(connection.headers, "header"));
     setIsComposerOpen(true);
+  }
+
+  function openDeleteEditingConnectionModal() {
+    if (!editingConnection || !canDeleteEditingConnection) {
+      return;
+    }
+
+    closeComposer();
+    openDeleteConnectionModal(editingConnection);
   }
 
   function updateRow(
@@ -2090,7 +2101,6 @@ export function App() {
     }
 
     setDeleteConnectionCandidate(null);
-    setDeleteSavedRequestCandidate(null);
     setDeleteConfirmation("");
     setConnectionActionError(null);
     setSavedRequestError(null);
@@ -2381,7 +2391,6 @@ export function App() {
   }
 
   function handleLoadSavedRequest(savedRequest: SavedRequest) {
-    setSavedRequestActionMenuId(null);
     isLoadingSavedRequestRef.current = true;
     setActiveCapabilityTab("tools");
     setActiveEditorTab("request");
@@ -2404,7 +2413,6 @@ export function App() {
   }
 
   async function handleExecuteSavedRequest(savedRequest: SavedRequest) {
-    setSavedRequestActionMenuId(null);
     handleLoadSavedRequest(savedRequest);
     setExecutingSavedRequestId(savedRequest.id);
     setToolExecution(null);
@@ -2447,10 +2455,25 @@ export function App() {
     }));
   }
 
-  function toggleSavedRequestDetails(savedRequestId: string) {
-    setExpandedSavedRequestId((currentId) =>
-      currentId === savedRequestId ? null : savedRequestId,
-    );
+  function openSavedRequestEditModal(savedRequest: SavedRequest) {
+    setEditingSavedRequestId(savedRequest.id);
+    setSavedRequestEdits((edits) => ({
+      ...edits,
+      [savedRequest.id]: {
+        description: edits[savedRequest.id]?.description ?? savedRequest.description ?? "",
+        name: edits[savedRequest.id]?.name ?? savedRequest.name,
+      },
+    }));
+    setSavedRequestError(null);
+  }
+
+  function closeSavedRequestEditModal() {
+    if (updatingSavedRequestId || deletingSavedRequestId) {
+      return;
+    }
+
+    setEditingSavedRequestId(null);
+    setSavedRequestError(null);
   }
 
   async function handleUpdateSavedRequest(savedRequest: SavedRequest) {
@@ -2489,19 +2512,12 @@ export function App() {
 
         return remainingEdits;
       });
-      setExpandedSavedRequestId(null);
-      setSavedRequestActionMenuId(null);
+      setEditingSavedRequestId(null);
     } catch (error) {
       setSavedRequestError(getErrorMessage(error));
     } finally {
       setUpdatingSavedRequestId(null);
     }
-  }
-
-  function openDeleteSavedRequestModal(savedRequest: SavedRequest) {
-    setDeleteSavedRequestCandidate(savedRequest);
-    setSavedRequestActionMenuId(null);
-    setSavedRequestError(null);
   }
 
   async function handleDeleteSavedRequest(savedRequest: SavedRequest) {
@@ -2526,7 +2542,7 @@ export function App() {
         setHasLoadedSavedRequestChanges(false);
         setIsSaveRequestComposerOpen(false);
       }
-      setDeleteSavedRequestCandidate(null);
+      setEditingSavedRequestId(null);
     } catch (error) {
       setSavedRequestError(getErrorMessage(error));
     } finally {
@@ -2552,42 +2568,6 @@ export function App() {
     } catch (error) {
       setTraceTransferError(getErrorMessage(error));
       setSelectedTraceEntry({ trace: entry });
-    }
-  }
-
-  async function handleReplaySelectedTrace() {
-    if (!selectedReplayRequestId) {
-      return;
-    }
-
-    setTraceTransferError(null);
-    setToolExecution(null);
-    setToolExecutionError(null);
-    setIsReplayingTool(true);
-    setResponseViewMode("formatted");
-
-    try {
-      const result = await localRuntimeClient.replayToolCall({
-        requestId: selectedReplayRequestId,
-      });
-
-      setToolExecution(result);
-      setSelectedTraceEntry({
-        request: result.request,
-        response: result.response,
-        trace: result.trace,
-      });
-      setRuntimeData((currentData) => ({
-        ...currentData,
-        traces: [
-          result.trace,
-          ...currentData.traces.filter((trace) => trace.id !== result.trace.id),
-        ],
-      }));
-    } catch (error) {
-      setToolExecutionError(getRuntimeDisplayError(error));
-    } finally {
-      setIsReplayingTool(false);
     }
   }
 
@@ -2655,11 +2635,9 @@ export function App() {
   return (
     <>
       <main
-        aria-hidden={
-          deleteConnectionCandidate || deleteSavedRequestCandidate ? true : undefined
-        }
+        aria-hidden={hasBlockingModal ? true : undefined}
         className="app-shell"
-        inert={deleteConnectionCandidate || deleteSavedRequestCandidate ? true : undefined}
+        inert={hasBlockingModal ? true : undefined}
       >
       <aside className="sidebar">
         <div className="sidebar-scroll">
@@ -2726,218 +2704,45 @@ export function App() {
               <small>{connections.length}</small>
             </button>
             <button
-              aria-expanded={isComposerOpen}
+              aria-label="Create connection"
               className="ghost-button"
               onClick={openNewConnectionComposer}
+              title="Create connection"
               type="button"
             >
-              + New
+              <Plus aria-hidden="true" size={15} strokeWidth={2.3} />
             </button>
           </div>
-
-          {!collapsedSidebarSections.connections && isComposerOpen ? (
-            <form className="connection-composer" onSubmit={handleSubmit}>
-              <div className="composer-header">
-                <h3>{editingConnectionId ? "Edit connection" : "New connection"}</h3>
-                {editingConnectionId ? <small>{editingConnectionId}</small> : null}
-              </div>
-
-              <label className="field compact">
-                <span>Name</span>
-                <input
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Local filesystem"
-                  type="text"
-                  value={name}
-                />
-              </label>
-
-              <fieldset className="field compact transport-field">
-                <legend>Transport</legend>
-                <div className="transport-options">
-                  {transportOptions.map((option) => (
-                    <button
-                      className={option.value === transport ? "selected" : ""}
-                      key={option.value}
-                      onClick={() => setTransport(option.value)}
-                      type="button"
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-
-              {transport === "stdio" ? (
-                <label className="field compact">
-                  <span>Command</span>
-                  <input
-                    onChange={(event) => setCommand(event.target.value)}
-                    placeholder="npx @modelcontextprotocol/server-filesystem ./"
-                    type="text"
-                    value={command}
-                  />
-                </label>
-              ) : (
-                <label className="field compact">
-                  <span>Remote URL</span>
-                  <input
-                    onChange={(event) => setUrl(event.target.value)}
-                    placeholder={
-                      transport === "http"
-                        ? "https://mcp.example.test"
-                        : "https://mcp.example.test/sse"
-                    }
-                    type="url"
-                    value={url}
-                  />
-                </label>
-              )}
-
-              <div className="key-value-section compact">
-                <div className="key-value-header">
-                  <h3>Environment</h3>
-                  <button
-                    onClick={() =>
-                      setEnvRows((rows) => [...rows, createBlankRow("env")])
-                    }
-                    type="button"
-                  >
-                    Add
-                  </button>
-                </div>
-                {envRows.map((row) => (
-                  <div className="key-value-row compact" key={row.id}>
-                    <input
-                      aria-label="Environment variable name"
-                      onChange={(event) =>
-                        setEnvRows((rows) =>
-                          updateRow(rows, row.id, "key", event.target.value),
-                        )
-                      }
-                      placeholder="NAME"
-                      type="text"
-                      value={row.key}
-                    />
-                    <input
-                      aria-label="Environment variable value"
-                      onChange={(event) =>
-                        setEnvRows((rows) =>
-                          updateRow(rows, row.id, "value", event.target.value),
-                        )
-                      }
-                      placeholder="value"
-                      type="password"
-                      value={row.value}
-                    />
-                    <button
-                      aria-label="Remove environment variable"
-                      onClick={() =>
-                        setEnvRows((rows) => removeRow(rows, row.id, "env"))
-                      }
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {isRemoteTransport ? (
-                <div className="key-value-section compact">
-                  <div className="key-value-header">
-                    <h3>Headers</h3>
-                    <button
-                      onClick={() =>
-                        setHeaderRows((rows) => [
-                          ...rows,
-                          createBlankRow("header"),
-                        ])
-                      }
-                      type="button"
-                    >
-                      Add
-                    </button>
-                  </div>
-                  {headerRows.map((row) => (
-                    <div className="key-value-row compact" key={row.id}>
-                      <input
-                        aria-label="Header name"
-                        onChange={(event) =>
-                          setHeaderRows((rows) =>
-                            updateRow(rows, row.id, "key", event.target.value),
-                          )
-                        }
-                        placeholder="Authorization"
-                        type="text"
-                        value={row.key}
-                      />
-                      <input
-                        aria-label="Header value"
-                        onChange={(event) =>
-                          setHeaderRows((rows) =>
-                            updateRow(rows, row.id, "value", event.target.value),
-                          )
-                        }
-                        placeholder="Bearer token"
-                        type="password"
-                        value={row.value}
-                      />
-                      <button
-                        aria-label="Remove header"
-                        onClick={() =>
-                          setHeaderRows((rows) =>
-                            removeRow(rows, row.id, "header"),
-                          )
-                        }
-                        type="button"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {composerError ? <small className="inline-error">{composerError}</small> : null}
-
-              <div className="form-actions">
-                <button onClick={closeComposer} type="button">
-                  Cancel
-                </button>
-                <button
-                  className="primary"
-                  disabled={!canSaveConnection || isSavingConnection}
-                  type="submit"
-                >
-                  {isSavingConnection
-                    ? "Saving"
-                    : editingConnectionId
-                      ? "Save profile"
-                      : runtimeData.source === "runtime"
-                        ? "Create profile"
-                        : "Create draft"}
-                </button>
-              </div>
-            </form>
-          ) : null}
 
           {!collapsedSidebarSections.connections ? (
             <>
               <div className="connection-list">
                 {connections.map((connection) => (
-                  <button
+                  <div
                     className={`connection-item ${
                       connection.id === selectedConnection?.id ? "active" : ""
                     }`}
                     key={connection.id}
-                    onClick={() => void handleSelectConnection(connection.id)}
-                    type="button"
                   >
-                    <span className="status-dot online" />
-                    <span className="connection-name">{connection.name}</span>
-                    <small>{connection.transport}</small>
-                  </button>
+                    <button
+                      className="connection-select-button"
+                      onClick={() => void handleSelectConnection(connection.id)}
+                      type="button"
+                    >
+                      <span className="status-dot online" />
+                      <span className="connection-name">{connection.name}</span>
+                    </button>
+                    <span className="connection-transport">{connection.transport}</span>
+                    <button
+                      aria-label={`Edit ${connection.name}`}
+                      className="connection-edit-button"
+                      onClick={() => openEditConnectionComposer(connection)}
+                      title={`Edit ${connection.name}`}
+                      type="button"
+                    >
+                      <Pencil aria-hidden="true" size={14} strokeWidth={2.2} />
+                    </button>
+                  </div>
                 ))}
               </div>
               {connectionActionError ? (
@@ -2964,7 +2769,7 @@ export function App() {
           </div>
           {!collapsedSidebarSections.savedRequests ? (
             <>
-              {savedRequestError && !deleteSavedRequestCandidate ? (
+              {savedRequestError && !editingSavedRequest ? (
                 <small className="inline-error saved-request-sidebar-error">
                   {savedRequestError}
                 </small>
@@ -2979,21 +2784,11 @@ export function App() {
                         <small>{group.requests.length}</small>
                       </div>
                       {group.requests.map((savedRequest) => {
-                        const editDraft = savedRequestEdits[savedRequest.id] ?? {
-                          description: savedRequest.description ?? "",
-                          name: savedRequest.name,
-                        };
-                        const isExpanded = expandedSavedRequestId === savedRequest.id;
                         const isLoaded = loadedSavedRequestId === savedRequest.id;
-                        const isActionMenuOpen =
-                          savedRequestActionMenuId === savedRequest.id;
-                        const detailsId = `saved-request-sidebar-details-${savedRequest.id}`;
 
                         return (
                           <article
-                            className={`saved-request-nav-item ${
-                              isLoaded ? "loaded" : ""
-                            } ${isExpanded ? "expanded" : ""}`}
+                            className={`saved-request-nav-item ${isLoaded ? "loaded" : ""}`}
                             key={savedRequest.id}
                           >
                             <div className="saved-request-nav-row">
@@ -3013,119 +2808,30 @@ export function App() {
                                   ) : null}
                                 </span>
                               </button>
-                              <div
-                                className="saved-request-action-menu-wrap"
-                                ref={
-                                  isActionMenuOpen ? savedRequestActionMenuRef : undefined
-                                }
-                              >
+                              <div className="saved-request-inline-actions">
                                 <button
-                                  aria-expanded={isActionMenuOpen}
-                                  aria-haspopup="menu"
-                                  aria-label={`Actions for ${savedRequest.name}`}
-                                  className="saved-request-menu-button"
+                                  aria-label={`Execute ${savedRequest.name}`}
+                                  className="saved-request-icon-button"
+                                  disabled={executingSavedRequestId === savedRequest.id}
                                   onClick={() =>
-                                    setSavedRequestActionMenuId((currentId) =>
-                                      currentId === savedRequest.id
-                                        ? null
-                                        : savedRequest.id,
-                                    )
+                                    void handleExecuteSavedRequest(savedRequest)
                                   }
+                                  title="Execute"
                                   type="button"
                                 >
-                                  ...
+                                  <Play aria-hidden="true" size={14} strokeWidth={2.2} />
                                 </button>
-                                {isActionMenuOpen ? (
-                                  <div className="saved-request-action-menu" role="menu">
-                                    <button
-                                      disabled={executingSavedRequestId === savedRequest.id}
-                                      onClick={() =>
-                                        void handleExecuteSavedRequest(savedRequest)
-                                      }
-                                      role="menuitem"
-                                      type="button"
-                                    >
-                                      {executingSavedRequestId === savedRequest.id
-                                        ? "Running"
-                                        : "Execute"}
-                                    </button>
-                                    <button
-                                      aria-controls={detailsId}
-                                      aria-expanded={isExpanded}
-                                      onClick={() => {
-                                        setSavedRequestActionMenuId(null);
-                                        toggleSavedRequestDetails(savedRequest.id);
-                                      }}
-                                      role="menuitem"
-                                      type="button"
-                                    >
-                                      {isExpanded ? "Hide edit" : "Edit"}
-                                    </button>
-                                    <button
-                                      disabled={deletingSavedRequestId === savedRequest.id}
-                                      onClick={() =>
-                                        openDeleteSavedRequestModal(savedRequest)
-                                      }
-                                      role="menuitem"
-                                      type="button"
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
-                                ) : null}
+                                <button
+                                  aria-label={`Edit ${savedRequest.name}`}
+                                  className="saved-request-icon-button"
+                                  onClick={() => openSavedRequestEditModal(savedRequest)}
+                                  title="Edit"
+                                  type="button"
+                                >
+                                  <Pencil aria-hidden="true" size={14} strokeWidth={2.2} />
+                                </button>
                               </div>
                             </div>
-                            {isExpanded ? (
-                              <div className="saved-request-inline-editor" id={detailsId}>
-                            <label className="field compact">
-                              <span>Name</span>
-                              <input
-                                onChange={(event) =>
-                                  updateSavedRequestDraft(
-                                    savedRequest,
-                                    "name",
-                                    event.target.value,
-                                  )
-                                }
-                                type="text"
-                                value={editDraft.name}
-                              />
-                            </label>
-                            <label className="field compact">
-                              <span>Description</span>
-                              <input
-                                onChange={(event) =>
-                                  updateSavedRequestDraft(
-                                    savedRequest,
-                                    "description",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="Optional"
-                                type="text"
-                                value={editDraft.description}
-                              />
-                            </label>
-                            <div className="saved-request-editor-actions">
-                              <button
-                                disabled={updatingSavedRequestId === savedRequest.id}
-                                onClick={() => void handleUpdateSavedRequest(savedRequest)}
-                                type="button"
-                              >
-                                {updatingSavedRequestId === savedRequest.id
-                                  ? "Saving"
-                                  : "Save"}
-                              </button>
-                              <button
-                                onClick={() => toggleSavedRequestDetails(savedRequest.id)}
-                                type="button"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                            <pre>{formatJson(savedRequest.input)}</pre>
-                          </div>
-                            ) : null}
                           </article>
                         );
                       })}
@@ -3245,32 +2951,6 @@ export function App() {
             {runtimeData.capabilityError && runtimeData.source === "runtime" ? (
               <span className="warning-pill">Connection error</span>
             ) : null}
-            <button
-              disabled={!selectedConnection}
-              onClick={() =>
-                selectedConnection ? openEditConnectionComposer(selectedConnection) : undefined
-              }
-              type="button"
-            >
-              Edit
-            </button>
-            {canDeleteSelectedConnection && selectedConnection ? (
-              <button
-                className="danger"
-                disabled={isDeletingConnection}
-                onClick={() => openDeleteConnectionModal(selectedConnection)}
-                type="button"
-              >
-                Delete
-              </button>
-            ) : null}
-            <button
-              disabled={!canReplaySelectedTrace || isReplayingTool}
-              onClick={() => void handleReplaySelectedTrace()}
-              type="button"
-            >
-              {isReplayingTool ? "Replaying" : "Replay"}
-            </button>
             <button
               className="connect-button"
               disabled={runtimeData.isLoading}
@@ -3735,11 +3415,17 @@ export function App() {
                         </button>
                       </div>
                       <button
-                        className="secondary-button"
+                        aria-label={isResponseCollapsed ? "Expand response" : "Collapse response"}
+                        className="secondary-button icon-only-button"
                         onClick={() => setIsResponseCollapsed((collapsed) => !collapsed)}
+                        title={isResponseCollapsed ? "Expand response" : "Collapse response"}
                         type="button"
                       >
-                        {isResponseCollapsed ? "Expand" : "Collapse"}
+                        {isResponseCollapsed ? (
+                          <PanelBottomOpen aria-hidden="true" size={17} strokeWidth={2.2} />
+                        ) : (
+                          <PanelBottomClose aria-hidden="true" size={17} strokeWidth={2.2} />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -3747,7 +3433,6 @@ export function App() {
                     <div className="response-body">
                       {responseErrorSummary ? (
                         <section className="response-error-summary" aria-label="Error summary">
-                          <strong>Error</strong>
                           {responseErrorSummary.detail ? (
                             <pre>{responseErrorSummary.detail}</pre>
                           ) : (
@@ -3790,6 +3475,330 @@ export function App() {
       </section>
       </main>
 
+      {isComposerOpen ? (
+        <div className="modal-backdrop">
+          <form
+            aria-labelledby="connection-profile-modal-title"
+            aria-modal="true"
+            className="connection-profile-modal"
+            onSubmit={handleSubmit}
+            role="dialog"
+          >
+            <div className="composer-header">
+              <div className="composer-title-group">
+                <span className="composer-icon">
+                  <Server aria-hidden="true" size={22} strokeWidth={2.1} />
+                </span>
+                <div>
+                  <p className="eyebrow">MCP server</p>
+                  <h2 id="connection-profile-modal-title">
+                    {editingConnectionId ? "Edit connection" : "New connection"}
+                  </h2>
+                </div>
+              </div>
+              {editingConnectionId ? <small>{editingConnectionId}</small> : null}
+            </div>
+
+            <label className="field compact">
+              <span>Name</span>
+              <input
+                autoFocus
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Local filesystem"
+                type="text"
+                value={name}
+              />
+            </label>
+
+            <fieldset className="field compact transport-field">
+              <legend>Transport</legend>
+              <div className="transport-options">
+                {transportOptions.map((option) => (
+                  <button
+                    className={option.value === transport ? "selected" : ""}
+                    key={option.value}
+                    onClick={() => setTransport(option.value)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+
+            {transport === "stdio" ? (
+              <label className="field compact">
+                <span>Command</span>
+                <input
+                  onChange={(event) => setCommand(event.target.value)}
+                  placeholder="npx @modelcontextprotocol/server-filesystem ./"
+                  type="text"
+                  value={command}
+                />
+              </label>
+            ) : (
+              <label className="field compact">
+                <span>Remote URL</span>
+                <input
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder={
+                    transport === "http"
+                      ? "https://mcp.example.test"
+                      : "https://mcp.example.test/sse"
+                  }
+                  type="url"
+                  value={url}
+                />
+              </label>
+            )}
+
+            <div className="key-value-section compact">
+              <div className="key-value-header">
+                <h3>Environment</h3>
+                <button
+                  aria-label="Add environment variable"
+                  onClick={() => setEnvRows((rows) => [...rows, createBlankRow("env")])}
+                  title="Add environment variable"
+                  type="button"
+                >
+                  <Plus aria-hidden="true" size={15} strokeWidth={2.3} />
+                </button>
+              </div>
+              {envRows.map((row) => (
+                <div className="key-value-row compact" key={row.id}>
+                  <input
+                    aria-label="Environment variable name"
+                    onChange={(event) =>
+                      setEnvRows((rows) =>
+                        updateRow(rows, row.id, "key", event.target.value),
+                      )
+                    }
+                    placeholder="NAME"
+                    type="text"
+                    value={row.key}
+                  />
+                  <input
+                    aria-label="Environment variable value"
+                    onChange={(event) =>
+                      setEnvRows((rows) =>
+                        updateRow(rows, row.id, "value", event.target.value),
+                      )
+                    }
+                    placeholder="value"
+                    type="password"
+                    value={row.value}
+                  />
+                  <button
+                    aria-label="Remove environment variable"
+                    className="icon-button"
+                    onClick={() =>
+                      setEnvRows((rows) => removeRow(rows, row.id, "env"))
+                    }
+                    title="Remove environment variable"
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" size={15} strokeWidth={2.1} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {isRemoteTransport ? (
+              <div className="key-value-section compact">
+                <div className="key-value-header">
+                  <h3>Headers</h3>
+                  <button
+                    aria-label="Add header"
+                    onClick={() =>
+                      setHeaderRows((rows) => [...rows, createBlankRow("header")])
+                    }
+                    title="Add header"
+                    type="button"
+                  >
+                    <Plus aria-hidden="true" size={15} strokeWidth={2.3} />
+                  </button>
+                </div>
+                {headerRows.map((row) => (
+                  <div className="key-value-row compact" key={row.id}>
+                    <input
+                      aria-label="Header name"
+                      onChange={(event) =>
+                        setHeaderRows((rows) =>
+                          updateRow(rows, row.id, "key", event.target.value),
+                        )
+                      }
+                      placeholder="Authorization"
+                      type="text"
+                      value={row.key}
+                    />
+                    <input
+                      aria-label="Header value"
+                      onChange={(event) =>
+                        setHeaderRows((rows) =>
+                          updateRow(rows, row.id, "value", event.target.value),
+                        )
+                      }
+                      placeholder="Bearer token"
+                      type="password"
+                      value={row.value}
+                    />
+                    <button
+                      aria-label="Remove header"
+                      className="icon-button"
+                      onClick={() =>
+                        setHeaderRows((rows) => removeRow(rows, row.id, "header"))
+                      }
+                      title="Remove header"
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={15} strokeWidth={2.1} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {composerError ? <small className="inline-error">{composerError}</small> : null}
+
+            <div className="form-actions connection-modal-actions">
+              <div>
+                {canDeleteEditingConnection ? (
+                  <button
+                    className="danger"
+                    disabled={isDeletingConnection || isSavingConnection}
+                    onClick={openDeleteEditingConnectionModal}
+                    type="button"
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </div>
+              <div>
+                <button onClick={closeComposer} type="button">
+                  Cancel
+                </button>
+                <button
+                  className="primary"
+                  disabled={!canSaveConnection || isSavingConnection}
+                  type="submit"
+                >
+                  {isSavingConnection
+                    ? "Saving"
+                    : editingConnectionId
+                      ? "Save profile"
+                      : runtimeData.source === "runtime"
+                        ? "Create profile"
+                        : "Create draft"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {editingSavedRequest && editingSavedRequestDraft ? (
+        <div className="modal-backdrop">
+          <form
+            aria-labelledby="saved-request-edit-modal-title"
+            aria-modal="true"
+            className="saved-request-edit-modal"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleUpdateSavedRequest(editingSavedRequest);
+            }}
+            role="dialog"
+          >
+            <div className="composer-header">
+              <div className="composer-title-group">
+                <span className="composer-icon">
+                  <Pencil aria-hidden="true" size={20} strokeWidth={2.1} />
+                </span>
+                <div>
+                  <p className="eyebrow">Saved request</p>
+                  <h2 id="saved-request-edit-modal-title">Edit request</h2>
+                </div>
+              </div>
+              <small>{editingSavedRequest.toolName}</small>
+            </div>
+
+            <label className="field compact">
+              <span>Name</span>
+              <input
+                autoFocus
+                onChange={(event) =>
+                  updateSavedRequestDraft(
+                    editingSavedRequest,
+                    "name",
+                    event.target.value,
+                  )
+                }
+                type="text"
+                value={editingSavedRequestDraft.name}
+              />
+            </label>
+
+            <label className="field compact">
+              <span>Description</span>
+              <input
+                onChange={(event) =>
+                  updateSavedRequestDraft(
+                    editingSavedRequest,
+                    "description",
+                    event.target.value,
+                  )
+                }
+                placeholder="Optional"
+                type="text"
+                value={editingSavedRequestDraft.description}
+              />
+            </label>
+
+            <div className="saved-request-input-preview">
+              <div className="key-value-header">
+                <h3>Request body</h3>
+              </div>
+              <pre>{formatJson(editingSavedRequest.input)}</pre>
+            </div>
+
+            {savedRequestError ? (
+              <small className="inline-error">{savedRequestError}</small>
+            ) : null}
+
+            <div className="form-actions connection-modal-actions">
+              <div>
+                <button
+                  className="danger"
+                  disabled={
+                    deletingSavedRequestId === editingSavedRequest.id ||
+                    updatingSavedRequestId === editingSavedRequest.id
+                  }
+                  onClick={() => void handleDeleteSavedRequest(editingSavedRequest)}
+                  type="button"
+                >
+                  {deletingSavedRequestId === editingSavedRequest.id
+                    ? "Deleting"
+                    : "Delete"}
+                </button>
+              </div>
+              <div>
+                <button onClick={closeSavedRequestEditModal} type="button">
+                  Cancel
+                </button>
+                <button
+                  className="primary"
+                  disabled={updatingSavedRequestId === editingSavedRequest.id}
+                  type="submit"
+                >
+                  {updatingSavedRequestId === editingSavedRequest.id
+                    ? "Saving"
+                    : "Save"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
       {deleteConnectionCandidate ? (
         <ConfirmationModal
           canConfirm={deleteConfirmation === "DELETE"}
@@ -3813,23 +3822,6 @@ export function App() {
           onConfirmationChange={setDeleteConfirmation}
           onConfirm={() => void handleDeleteConnection(deleteConnectionCandidate)}
           title="Delete connection?"
-        />
-      ) : null}
-
-      {deleteSavedRequestCandidate ? (
-        <ConfirmationModal
-          confirmLabel="Delete saved request"
-          description={
-            <>
-              Deleting <strong>{deleteSavedRequestCandidate.name}</strong> removes
-              this saved tool request. This action cannot be undone.
-            </>
-          }
-          error={savedRequestError}
-          isPending={deletingSavedRequestId === deleteSavedRequestCandidate.id}
-          onCancel={closeDeleteModal}
-          onConfirm={() => void handleDeleteSavedRequest(deleteSavedRequestCandidate)}
-          title="Delete saved request?"
         />
       ) : null}
     </>

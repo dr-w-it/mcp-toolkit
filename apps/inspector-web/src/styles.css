@@ -182,6 +182,11 @@ textarea::placeholder {
   min-height: 0;
   overflow: hidden;
   background: var(--color-background);
+  transition: grid-template-columns 160ms ease;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 68px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -199,6 +204,10 @@ textarea::placeholder {
   padding: 18px;
 }
 
+.sidebar.collapsed {
+  padding: 14px 10px;
+}
+
 .sidebar-scroll {
   display: flex;
   flex-direction: column;
@@ -209,11 +218,24 @@ textarea::placeholder {
   scrollbar-gutter: stable;
 }
 
+.sidebar.collapsed .sidebar-scroll {
+  align-items: center;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
 .brand {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr) 32px;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.sidebar.collapsed .brand {
+  grid-template-columns: 48px;
+  justify-items: center;
+  gap: 10px;
 }
 
 .brand-mark {
@@ -227,6 +249,41 @@ textarea::placeholder {
   background: var(--color-surface);
   font-size: 14px;
   font-weight: 750;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-copy h1,
+.brand-copy p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-collapse-button {
+  display: inline-grid;
+  place-items: center;
+  justify-self: end;
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+}
+
+.sidebar-collapse-button:hover:not(:disabled),
+.sidebar-collapse-button:focus-visible {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.sidebar.collapsed .sidebar-collapse-button {
+  justify-self: center;
 }
 
 .runtime-status {
@@ -2233,6 +2290,10 @@ pre {
     height: auto;
     min-height: 100vh;
     overflow: visible;
+  }
+
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 1fr;
   }
 
   .sidebar {

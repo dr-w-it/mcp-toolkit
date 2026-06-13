@@ -16,6 +16,8 @@ import {
   Copy,
   PanelBottomClose,
   PanelBottomOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Play,
   Plus,
@@ -130,6 +132,7 @@ interface JsonTreeNodeProps {
 }
 
 const sidebarSectionStorageKey = "mcp-inspector.sidebar.sections.v1";
+const sidebarCollapsedStorageKey = "mcp-inspector.sidebar.collapsed.v1";
 const responsePanelHeightStorageKey = "mcp-inspector.response.height.v1";
 const responsePanelDefaultHeight = 260;
 const responsePanelMinHeight = 160;
@@ -180,6 +183,18 @@ function readSidebarSectionState(): SidebarSectionState {
     };
   } catch {
     return defaultSidebarSectionState;
+  }
+}
+
+function readSidebarCollapsed() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(sidebarCollapsedStorageKey) === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -1038,6 +1053,9 @@ export function App() {
   });
   const [collapsedSidebarSections, setCollapsedSidebarSections] =
     useState<SidebarSectionState>(() => readSidebarSectionState());
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() =>
+    readSidebarCollapsed(),
+  );
   const [draftConnections, setDraftConnections] = useState<ConnectionProfile[]>([]);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
@@ -1483,6 +1501,17 @@ export function App() {
       JSON.stringify(collapsedSidebarSections),
     );
   }, [collapsedSidebarSections]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        sidebarCollapsedStorageKey,
+        String(isSidebarCollapsed),
+      );
+    } catch {
+      // Keep sidebar width session-only when local preferences are unavailable.
+    }
+  }, [isSidebarCollapsed]);
 
   useEffect(() => {
     try {
@@ -2637,19 +2666,36 @@ export function App() {
     <>
       <main
         aria-hidden={hasBlockingModal ? true : undefined}
-        className="app-shell"
+        className={`app-shell ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}
         inert={hasBlockingModal ? true : undefined}
       >
-      <aside className="sidebar">
+      <aside className={`sidebar ${isSidebarCollapsed ? "collapsed" : ""}`}>
         <div className="sidebar-scroll">
         <div className="brand">
           <span className="brand-mark">dr-w</span>
-          <div>
-            <h1>MCP Inspector</h1>
-            <p>Local runtime - v0.1</p>
-          </div>
+          {!isSidebarCollapsed ? (
+            <div className="brand-copy">
+              <h1>MCP Inspector</h1>
+              <p>Local runtime - v0.1</p>
+            </div>
+          ) : null}
+          <button
+            aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="sidebar-collapse-button"
+            onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+            title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            type="button"
+          >
+            {isSidebarCollapsed ? (
+              <PanelLeftOpen aria-hidden="true" size={17} strokeWidth={2.2} />
+            ) : (
+              <PanelLeftClose aria-hidden="true" size={17} strokeWidth={2.2} />
+            )}
+          </button>
         </div>
 
+        {!isSidebarCollapsed ? (
+          <>
         <section className={`runtime-status ${runtimeTone}`} aria-live="polite">
           <div className="runtime-status-line">
             <span className={`status-dot ${runtimeTone}`} />
@@ -2924,8 +2970,12 @@ export function App() {
           ) : null}
         </section>
 
+          </>
+        ) : null}
         </div>
-        <div className="sidebar-footer">Local-first - no cloud</div>
+        {!isSidebarCollapsed ? (
+          <div className="sidebar-footer">Local-first - no cloud</div>
+        ) : null}
       </aside>
 
       <section className="workbench">

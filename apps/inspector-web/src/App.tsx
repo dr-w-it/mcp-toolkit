@@ -19,6 +19,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Server,
   Trash2,
   TriangleAlert,
@@ -2955,13 +2956,23 @@ export function App() {
               className="connect-button"
               disabled={runtimeData.isLoading}
               onClick={() => void loadRuntimeData()}
+              aria-label={
+                runtimeData.isLoading
+                  ? "Connecting"
+                  : runtimeData.source === "runtime"
+                    ? "Reconnect"
+                    : "Connect"
+              }
+              title={
+                runtimeData.isLoading
+                  ? "Connecting"
+                  : runtimeData.source === "runtime"
+                    ? "Reconnect"
+                    : "Connect"
+              }
               type="button"
             >
-              {runtimeData.isLoading
-                ? "Connecting"
-                : runtimeData.source === "runtime"
-                  ? "Reconnect"
-                  : "Connect"}
+              <RefreshCw aria-hidden="true" size={17} strokeWidth={2.2} />
             </button>
           </div>
         </header>

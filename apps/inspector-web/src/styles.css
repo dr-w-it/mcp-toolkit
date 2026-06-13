@@ -1128,9 +1128,14 @@ textarea::placeholder {
   padding: 0 14px;
 }
 
-.connect-button {
+.target-actions .connect-button {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  min-width: 38px;
   border-color: var(--color-accent-border);
   color: var(--color-text-secondary);
+  padding: 0;
 }
 
 .warning-pill {

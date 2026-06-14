@@ -85,10 +85,12 @@ interface SchemaSummary {
 }
 
 interface CapabilityListItem {
+  category?: ToolCategory;
   description: string;
   id: string;
   isDeprecated?: boolean;
   meta?: string;
+  requiredCount?: number;
   title: string;
 }
 
@@ -123,6 +125,16 @@ interface ResponseErrorSummary {
   title: string;
 }
 
+interface ToolParameterCounts {
+  parameterCount: number;
+  requiredCount: number;
+}
+
+interface ToolCategory {
+  id: string;
+  label: string;
+}
+
 interface JsonTreeNodeProps {
   expandedPaths: Set<string>;
   name?: string;
@@ -134,6 +146,8 @@ interface JsonTreeNodeProps {
 const sidebarSectionStorageKey = "mcp-inspector.sidebar.sections.v1";
 const sidebarCollapsedStorageKey = "mcp-inspector.sidebar.collapsed.v1";
 const responsePanelHeightStorageKey = "mcp-inspector.response.height.v1";
+const requestPanelCollapsedStorageKey = "mcp-inspector.request.collapsed.v1";
+const responsePanelCollapsedStorageKey = "mcp-inspector.response.collapsed.v1";
 const responsePanelDefaultHeight = 260;
 const responsePanelMinHeight = 160;
 const responsePanelMaxHeight = 720;
@@ -214,12 +228,32 @@ function readResponsePanelHeight() {
   }
 }
 
+function readPanelCollapsed(storageKey: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(storageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
 const capabilityTabs: { id: CapabilityTab; label: string }[] = [
   { id: "tools", label: "Tools" },
   { id: "resources", label: "Resources" },
   { id: "prompts", label: "Prompts" },
   { id: "schemas", label: "Schemas" },
 ];
+
+const toolCategories = {
+  directory: { id: "directory", label: "Directory operations" },
+  reading: { id: "reading", label: "File reading" },
+  search: { id: "search", label: "Search / metadata" },
+  writing: { id: "writing", label: "File writing / editing" },
+  other: { id: "other", label: "Other tools" },
+} satisfies Record<string, ToolCategory>;
 
 function getErrorMessage(error: unknown) {
   if (error instanceof LocalRuntimeError) {
@@ -724,19 +758,108 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function getToolParameterSummary(tool: ToolDefinition | undefined) {
+function getToolParameterCounts(tool: ToolDefinition | undefined): ToolParameterCounts {
   const properties = isJsonObject(tool?.inputSchema?.properties)
     ? tool.inputSchema.properties
     : {};
   const required = isStringArray(tool?.inputSchema?.required)
     ? tool.inputSchema.required
     : [];
-  const parameterCount = Object.keys(properties).length;
-  const parameterLabel = parameterCount === 1 ? "1 parameter" : `${parameterCount} parameters`;
-  const requiredLabel =
-    required.length === 1 ? "1 required" : `${required.length} required`;
 
-  return parameterCount > 0 ? `${parameterLabel} - ${requiredLabel}` : "No parameters";
+  return {
+    parameterCount: Object.keys(properties).length,
+    requiredCount: required.length,
+  };
+}
+
+function formatToolParameterSummary(counts: ToolParameterCounts) {
+  const parameterLabel =
+    counts.parameterCount === 1 ? "1 parameter" : `${counts.parameterCount} parameters`;
+  const requiredLabel =
+    counts.requiredCount === 1 ? "1 required" : `${counts.requiredCount} required`;
+
+  return counts.parameterCount > 0 ? `${parameterLabel} - ${requiredLabel}` : "No parameters";
+}
+
+function getToolParameterSummary(tool: ToolDefinition | undefined) {
+  return formatToolParameterSummary(getToolParameterCounts(tool));
+}
+
+function getToolCategory(tool: ToolDefinition): ToolCategory {
+  const name = tool.name.toLowerCase();
+  const description = tool.description?.toLowerCase() ?? "";
+  const haystack = `${name} ${description}`;
+
+  if (
+    name.includes("read") ||
+    haystack.includes("read a file") ||
+    haystack.includes("read file") ||
+    haystack.includes("media file")
+  ) {
+    return toolCategories.reading;
+  }
+
+  if (
+    name.includes("write") ||
+    name.includes("edit") ||
+    name.includes("update") ||
+    name.includes("delete") ||
+    haystack.includes("write") ||
+    haystack.includes("edit")
+  ) {
+    return toolCategories.writing;
+  }
+
+  if (
+    name.includes("directory") ||
+    name.includes("tree") ||
+    name.includes("move_file") ||
+    haystack.includes("directory") ||
+    haystack.includes("folder")
+  ) {
+    return toolCategories.directory;
+  }
+
+  if (
+    name.includes("search") ||
+    name.includes("info") ||
+    name.includes("metadata") ||
+    name.includes("allowed") ||
+    haystack.includes("search") ||
+    haystack.includes("metadata")
+  ) {
+    return toolCategories.search;
+  }
+
+  return toolCategories.other;
+}
+
+function getShortDescription(description: string | undefined) {
+  if (!description) {
+    return undefined;
+  }
+
+  const trimmedDescription = description.trim().replace(/\s+/g, " ");
+
+  if (trimmedDescription.length <= 150) {
+    return trimmedDescription;
+  }
+
+  return `${trimmedDescription.slice(0, 147).trimEnd()}...`;
+}
+
+function groupCapabilityItems(items: CapabilityListItem[]) {
+  const groups = new Map<string, { category: ToolCategory; items: CapabilityListItem[] }>();
+
+  for (const item of items) {
+    const category = item.category ?? toolCategories.other;
+    const group = groups.get(category.id) ?? { category, items: [] };
+
+    group.items.push(item);
+    groups.set(category.id, group);
+  }
+
+  return Array.from(groups.values()).filter((group) => group.items.length > 0);
 }
 
 function formatConnectionCommand(connection: ConnectionProfile | undefined) {
@@ -1126,7 +1249,12 @@ export function App() {
   const [responsePanelHeight, setResponsePanelHeight] = useState(() =>
     readResponsePanelHeight(),
   );
-  const [isResponseCollapsed, setIsResponseCollapsed] = useState(false);
+  const [isRequestCollapsed, setIsRequestCollapsed] = useState(() =>
+    readPanelCollapsed(requestPanelCollapsedStorageKey),
+  );
+  const [isResponseCollapsed, setIsResponseCollapsed] = useState(() =>
+    readPanelCollapsed(responsePanelCollapsedStorageKey),
+  );
   const [expandedResponsePaths, setExpandedResponsePaths] = useState<Set<string>>(
     () => new Set(["$"]),
   );
@@ -1181,6 +1309,8 @@ export function App() {
     selectedTool,
     runtimeData.capabilities.tools,
   );
+  const selectedToolParameterCounts = getToolParameterCounts(selectedTool);
+  const selectedToolShortDescription = getShortDescription(selectedTool?.description);
   const selectedResource =
     runtimeData.capabilities.resources.find(
       (resource) => resource.uri === selectedCapabilityKeys.resources,
@@ -1239,12 +1369,22 @@ export function App() {
 
   const capabilityItems = useMemo<CapabilityListItem[]>(() => {
     if (activeCapabilityTab === "tools") {
-      return runtimeData.capabilities.tools.map((tool) => ({
-        description: tool.description ?? "No description provided.",
-        id: tool.name,
-        isDeprecated: isDeprecatedTool(tool),
-        title: tool.name,
-      }));
+      return runtimeData.capabilities.tools.map((tool) => {
+        const counts = getToolParameterCounts(tool);
+
+        return {
+          category: getToolCategory(tool),
+          description: tool.description ?? "No description provided.",
+          id: tool.name,
+          isDeprecated: isDeprecatedTool(tool),
+          meta:
+            counts.parameterCount === 1
+              ? "1 parameter"
+              : `${counts.parameterCount} parameters`,
+          requiredCount: counts.requiredCount,
+          title: tool.name,
+        };
+      });
     }
 
     if (activeCapabilityTab === "resources") {
@@ -1282,6 +1422,8 @@ export function App() {
 
     return `${item.title} ${item.description} ${item.meta}`.toLowerCase().includes(query);
   });
+  const filteredCapabilityGroups =
+    activeCapabilityTab === "tools" ? groupCapabilityItems(filteredCapabilityItems) : [];
   const savedRequestGroups = useMemo(() => {
     const groups = new Map<string, SavedRequest[]>();
 
@@ -1316,12 +1458,15 @@ export function App() {
   const selectedToolRequiredFields = getSchemaRequiredFields(selectedTool?.inputSchema);
   const detailMetadata = [
     activeCapabilityTab === "tools"
-      ? getToolParameterSummary(selectedTool)
+      ? `${selectedToolParameterCounts.parameterCount} params`
       : activeCapabilityTab === "resources"
         ? selectedResource?.mimeType ?? "Resource"
         : activeCapabilityTab === "prompts"
           ? `${selectedPrompt?.arguments?.length ?? 0} arguments`
           : selectedSchema?.source ?? "JSON schema",
+    activeCapabilityTab === "tools"
+      ? `${selectedToolParameterCounts.requiredCount} required`
+      : undefined,
   ].filter(Boolean);
 
   const selectedCapabilityId =
@@ -1520,6 +1665,28 @@ export function App() {
       // Keep resize session-only when local preferences are unavailable.
     }
   }, [responsePanelHeight]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        requestPanelCollapsedStorageKey,
+        String(isRequestCollapsed),
+      );
+    } catch {
+      // Keep request collapse session-only when local preferences are unavailable.
+    }
+  }, [isRequestCollapsed]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        responsePanelCollapsedStorageKey,
+        String(isResponseCollapsed),
+      );
+    } catch {
+      // Keep response collapse session-only when local preferences are unavailable.
+    }
+  }, [isResponseCollapsed]);
 
   useEffect(() => {
     if (!responsePayload || responseViewMode !== "formatted") {
@@ -2945,11 +3112,11 @@ export function App() {
               ) : null}
               <div className="timeline">
                 {runtimeData.traces.length > 0 ? (
-                  runtimeData.traces.map((entry) => (
+                  runtimeData.traces.map((entry, index) => (
                     <button
                       className={`timeline-item ${
                         entry.id === selectedTraceEntry?.trace.id ? "selected" : ""
-                      }`}
+                      } ${index > 2 ? "older" : ""}`}
                       key={entry.id}
                       onClick={() => void handleSelectTrace(entry)}
                       type="button"
@@ -3099,27 +3266,64 @@ export function App() {
                   ) : null}
                 </section>
               ) : filteredCapabilityItems.length > 0 ? (
-                filteredCapabilityItems.map((item) => (
-                  <button
-                    className={`capability-card ${
-                      item.id === selectedCapabilityId ? "selected" : ""
-                    }`}
-                    key={item.id}
-                    onClick={() => handleSelectCapability(item.id)}
-                    title={item.description}
-                    type="button"
-                  >
-                    <div className="capability-card-title">
-                      <h3>{item.title}</h3>
-                      {item.isDeprecated ? <span>Deprecated</span> : null}
-                    </div>
-                    {item.meta ? (
-                      <div className="capability-card-meta">
-                        <small>{item.meta}</small>
+                activeCapabilityTab === "tools" ? (
+                  filteredCapabilityGroups.map((group) => (
+                    <div className="capability-group" key={group.category.id}>
+                      <div className="capability-group-header">
+                        <span>{group.category.label}</span>
+                        <small>{group.items.length}</small>
                       </div>
-                    ) : null}
-                  </button>
-                ))
+                      {group.items.map((item) => (
+                        <button
+                          className={`capability-card ${
+                            item.id === selectedCapabilityId ? "selected" : ""
+                          }`}
+                          key={item.id}
+                          onClick={() => handleSelectCapability(item.id)}
+                          title={item.description}
+                          type="button"
+                        >
+                          <div className="capability-card-title">
+                            <h3>{item.title}</h3>
+                            {item.isDeprecated ? <span>Deprecated</span> : null}
+                          </div>
+                          {item.meta ? (
+                            <div className="capability-card-meta">
+                              <small>{item.meta}</small>
+                              {item.requiredCount && item.requiredCount > 0 ? (
+                                <small className="required-count">
+                                  {item.requiredCount} required
+                                </small>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  ))
+                ) : (
+                  filteredCapabilityItems.map((item) => (
+                    <button
+                      className={`capability-card ${
+                        item.id === selectedCapabilityId ? "selected" : ""
+                      }`}
+                      key={item.id}
+                      onClick={() => handleSelectCapability(item.id)}
+                      title={item.description}
+                      type="button"
+                    >
+                      <div className="capability-card-title">
+                        <h3>{item.title}</h3>
+                        {item.isDeprecated ? <span>Deprecated</span> : null}
+                      </div>
+                      {item.meta ? (
+                        <div className="capability-card-meta">
+                          <small>{item.meta}</small>
+                        </div>
+                      ) : null}
+                    </button>
+                  ))
+                )
               ) : (
                 <div className="empty-state">
                   {capabilityItems.length > 0
@@ -3161,6 +3365,11 @@ export function App() {
                       </span>
                     ) : null}
                   </div>
+                  {activeCapabilityTab === "tools" && selectedToolShortDescription ? (
+                    <p className="detail-short-description">
+                      {selectedToolShortDescription}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="split-action" ref={toolActionMenuRef}>
                   <button
@@ -3277,8 +3486,8 @@ export function App() {
             <div className="detail-workspace">
               <div
                 className={`request-response-flow ${
-                  isResponseCollapsed ? "response-collapsed" : ""
-                }`}
+                  isRequestCollapsed ? "request-collapsed" : ""
+                } ${isResponseCollapsed ? "response-collapsed" : ""}`}
                 ref={requestResponseFlowRef}
                 style={
                   {
@@ -3286,33 +3495,73 @@ export function App() {
                   } as CSSProperties
                 }
               >
-                <section className="editor-tabs-panel">
-                  <div className="editor-tab-list" role="tablist" aria-label="Tool editor">
-                    <button
-                      aria-controls="editor-tab-schema"
-                      aria-selected={activeEditorTab === "schema"}
-                      className={activeEditorTab === "schema" ? "selected" : ""}
-                      id="editor-tab-schema-button"
-                      onClick={() => setActiveEditorTab("schema")}
-                      role="tab"
-                      type="button"
-                    >
-                      {activeCapabilityTab === "tools" ? "Input schema" : "Definition"}
-                    </button>
-                    <button
-                      aria-controls="editor-tab-request"
-                      aria-selected={activeEditorTab === "request"}
-                      className={activeEditorTab === "request" ? "selected" : ""}
-                      id="editor-tab-request-button"
-                      onClick={() => setActiveEditorTab("request")}
-                      role="tab"
-                      type="button"
-                    >
-                      Request Body
-                    </button>
+                <section
+                  className={`editor-tabs-panel ${
+                    isRequestCollapsed ? "collapsed" : ""
+                  }`}
+                >
+                  <div className="request-section-header">
+                    <div>
+                      <h3>Request</h3>
+                      <div className="request-summary-line">
+                        <small>{activeEditorTab === "request" ? "body" : "schema"}</small>
+                        {activeCapabilityTab === "tools" ? (
+                          <small>
+                            {selectedToolRequiredFields.length > 0
+                              ? `${selectedToolRequiredFields.length} required`
+                              : "no required fields"}
+                          </small>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="request-header-actions">
+                      {!isRequestCollapsed ? (
+                        <div
+                          className="editor-tab-list"
+                          role="tablist"
+                          aria-label="Tool editor"
+                        >
+                          <button
+                            aria-controls="editor-tab-schema"
+                            aria-selected={activeEditorTab === "schema"}
+                            className={activeEditorTab === "schema" ? "selected" : ""}
+                            id="editor-tab-schema-button"
+                            onClick={() => setActiveEditorTab("schema")}
+                            role="tab"
+                            type="button"
+                          >
+                            {activeCapabilityTab === "tools" ? "Input schema" : "Definition"}
+                          </button>
+                          <button
+                            aria-controls="editor-tab-request"
+                            aria-selected={activeEditorTab === "request"}
+                            className={activeEditorTab === "request" ? "selected" : ""}
+                            id="editor-tab-request-button"
+                            onClick={() => setActiveEditorTab("request")}
+                            role="tab"
+                            type="button"
+                          >
+                            Request Body
+                          </button>
+                        </div>
+                      ) : null}
+                      <button
+                        aria-label={isRequestCollapsed ? "Expand request" : "Collapse request"}
+                        className="secondary-button icon-only-button"
+                        onClick={() => setIsRequestCollapsed((collapsed) => !collapsed)}
+                        title={isRequestCollapsed ? "Expand request" : "Collapse request"}
+                        type="button"
+                      >
+                        {isRequestCollapsed ? (
+                          <PanelBottomOpen aria-hidden="true" size={17} strokeWidth={2.2} />
+                        ) : (
+                          <PanelBottomClose aria-hidden="true" size={17} strokeWidth={2.2} />
+                        )}
+                      </button>
+                    </div>
                   </div>
 
-                  {activeEditorTab === "schema" ? (
+                  {!isRequestCollapsed && activeEditorTab === "schema" ? (
                     <div
                       aria-labelledby="editor-tab-schema-button"
                       className="editor-tab-panel code-tab-panel"
@@ -3324,7 +3573,7 @@ export function App() {
                       </span>
                       <pre>{formatJson(detailPayload)}</pre>
                     </div>
-                  ) : (
+                  ) : !isRequestCollapsed ? (
                     <div
                       aria-labelledby="editor-tab-request-button"
                       className="editor-tab-panel"
@@ -3398,7 +3647,7 @@ export function App() {
                         </pre>
                       )}
                     </div>
-                  )}
+                  ) : null}
                 </section>
 
                 <section
@@ -3406,7 +3655,7 @@ export function App() {
                     isResponseCollapsed ? "collapsed" : ""
                   }`}
                 >
-                  {!isResponseCollapsed ? (
+                  {!isResponseCollapsed && !isRequestCollapsed ? (
                     <button
                       aria-label="Resize response panel"
                       className="response-resize-handle"
@@ -3415,16 +3664,16 @@ export function App() {
                     />
                   ) : null}
                   <div className="response-header">
-                    <div>
+                    <div className="response-title-group">
                       <h3>Response</h3>
                       <div className="response-summary-line">
                         <small
                           className={
                             responseStatus === "success"
-                              ? "response-status success"
+                              ? "response-status-pill success"
                               : responseStatus === "error"
-                                ? "response-status error"
-                                : "response-status"
+                                ? "response-status-pill error"
+                                : "response-status-pill"
                           }
                         >
                           {responseStatus}

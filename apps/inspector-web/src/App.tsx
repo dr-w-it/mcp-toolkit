@@ -14,14 +14,15 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  History,
   PanelBottomClose,
   PanelBottomOpen,
   PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   Play,
   Plus,
   RefreshCw,
+  Save,
   Server,
   Trash2,
   TriangleAlert,
@@ -1490,6 +1491,11 @@ export function App() {
           selectedTraceEntry.trace,
         )
     : null;
+  const activeSidebarSection: SidebarSectionId = selectedTraceEntry
+    ? "timeline"
+    : loadedSavedRequestId
+      ? "savedRequests"
+      : "connections";
   const responsePayload = toolExecutionError
     ? createRuntimeErrorResponsePayload(toolExecutionError)
     : toolExecution
@@ -1849,6 +1855,14 @@ export function App() {
 
   function collapseFullResponse() {
     setExpandedResponsePaths(new Set(["$"]));
+  }
+
+  function openSidebarSection(sectionId: SidebarSectionId) {
+    setIsSidebarCollapsed(false);
+    setCollapsedSidebarSections((currentSections) => ({
+      ...currentSections,
+      [sectionId]: false,
+    }));
   }
 
   async function handleCopyResponseJson() {
@@ -2837,31 +2851,80 @@ export function App() {
         inert={hasBlockingModal ? true : undefined}
       >
       <aside className={`sidebar ${isSidebarCollapsed ? "collapsed" : ""}`}>
+        {!isSidebarCollapsed ? (
+          <button
+            aria-label="Collapse sidebar"
+            className="sidebar-collapse-button"
+            onClick={() => setIsSidebarCollapsed(true)}
+            title="Collapse sidebar"
+            type="button"
+          >
+            <PanelLeftClose aria-hidden="true" size={17} strokeWidth={2.2} />
+          </button>
+        ) : null}
         <div className="sidebar-scroll">
         <div className="brand">
-          <span className="brand-mark">dr-w</span>
+          {isSidebarCollapsed ? (
+            <button
+              aria-label="Expand sidebar"
+              className="brand-mark brand-expand-button"
+              onClick={() => setIsSidebarCollapsed(false)}
+              title="Expand sidebar"
+              type="button"
+            >
+              dr-w
+            </button>
+          ) : (
+            <span className="brand-mark">dr-w</span>
+          )}
           {!isSidebarCollapsed ? (
             <div className="brand-copy">
               <h1>MCP Inspector</h1>
               <p>Local runtime - v0.1</p>
             </div>
           ) : null}
-          <button
-            aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="sidebar-collapse-button"
-            onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
-            title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            type="button"
-          >
-            {isSidebarCollapsed ? (
-              <PanelLeftOpen aria-hidden="true" size={17} strokeWidth={2.2} />
-            ) : (
-              <PanelLeftClose aria-hidden="true" size={17} strokeWidth={2.2} />
-            )}
-          </button>
         </div>
 
-        {!isSidebarCollapsed ? (
+        {isSidebarCollapsed ? (
+          <nav className="sidebar-rail-nav" aria-label="Sidebar sections">
+            <button
+              aria-label={`Connections, ${connections.length}`}
+              className={`sidebar-rail-button ${
+                activeSidebarSection === "connections" ? "active" : ""
+              }`}
+              onClick={() => openSidebarSection("connections")}
+              title="Connections"
+              type="button"
+            >
+              <Server aria-hidden="true" size={19} strokeWidth={2.2} />
+              <span>{connections.length}</span>
+            </button>
+            <button
+              aria-label={`Saved Requests, ${runtimeData.savedRequests.length}`}
+              className={`sidebar-rail-button ${
+                activeSidebarSection === "savedRequests" ? "active" : ""
+              }`}
+              onClick={() => openSidebarSection("savedRequests")}
+              title="Saved Requests"
+              type="button"
+            >
+              <Save aria-hidden="true" size={19} strokeWidth={2.2} />
+              <span>{runtimeData.savedRequests.length}</span>
+            </button>
+            <button
+              aria-label={`Timeline, ${runtimeData.traces.length}`}
+              className={`sidebar-rail-button ${
+                activeSidebarSection === "timeline" ? "active" : ""
+              }`}
+              onClick={() => openSidebarSection("timeline")}
+              title="Timeline"
+              type="button"
+            >
+              <History aria-hidden="true" size={19} strokeWidth={2.2} />
+              <span>{runtimeData.traces.length}</span>
+            </button>
+          </nav>
+        ) : (
           <>
         <section className={`runtime-status ${runtimeTone}`} aria-live="polite">
           <div className="runtime-status-line">
@@ -3138,7 +3201,7 @@ export function App() {
         </section>
 
           </>
-        ) : null}
+        )}
         </div>
         {!isSidebarCollapsed ? (
           <div className="sidebar-footer">Local-first - no cloud</div>

@@ -186,7 +186,7 @@ textarea::placeholder {
 }
 
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 68px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -197,7 +197,7 @@ textarea::placeholder {
   gap: 12px;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   border-right: 1px solid var(--color-sidebar-border);
   background: var(--color-sidebar-background);
   box-shadow: var(--shadow-sidebar);
@@ -205,7 +205,7 @@ textarea::placeholder {
 }
 
 .sidebar.collapsed {
-  padding: 14px 10px;
+  padding: 14px 8px;
 }
 
 .sidebar-scroll {
@@ -226,7 +226,7 @@ textarea::placeholder {
 
 .brand {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 32px;
+  grid-template-columns: 48px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -251,6 +251,17 @@ textarea::placeholder {
   font-weight: 750;
 }
 
+.brand-expand-button {
+  padding: 0;
+}
+
+.brand-expand-button:hover:not(:disabled),
+.brand-expand-button:focus-visible {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
 .brand-copy {
   min-width: 0;
 }
@@ -263,27 +274,83 @@ textarea::placeholder {
 }
 
 .sidebar-collapse-button {
+  position: absolute;
+  z-index: 3;
+  top: 26px;
+  right: -15px;
   display: inline-grid;
   place-items: center;
-  justify-self: end;
   width: 32px;
   min-width: 32px;
   min-height: 32px;
-  border-color: transparent;
-  background: transparent;
+  border-color: var(--color-sidebar-border);
+  background: var(--color-surface);
   padding: 0;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 .sidebar-collapse-button:hover:not(:disabled),
 .sidebar-collapse-button:focus-visible {
-  border-color: var(--color-border);
-  background: var(--color-surface);
+  border-color: var(--color-accent);
+  background: var(--color-surface-elevated);
   color: var(--color-text);
 }
 
-.sidebar.collapsed .sidebar-collapse-button {
-  justify-self: center;
+.sidebar-rail-nav {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  justify-items: center;
+  border-top: 1px solid var(--color-sidebar-border);
+  padding-top: 14px;
+}
+
+.sidebar-rail-button {
+  position: relative;
+  display: inline-grid;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 0;
+}
+
+.sidebar-rail-button:hover:not(:disabled),
+.sidebar-rail-button:focus-visible,
+.sidebar-rail-button.active {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.sidebar-rail-button.active::before {
+  position: absolute;
+  left: -8px;
+  width: 3px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  content: "";
+}
+
+.sidebar-rail-button span {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  min-width: 15px;
+  border: 1px solid var(--color-sidebar-border);
+  border-radius: 999px;
+  background: var(--color-sidebar-background);
+  color: var(--color-text-secondary);
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .runtime-status {
@@ -2045,7 +2112,6 @@ textarea::placeholder {
   overflow: hidden;
   border-top: 1px solid var(--color-border);
   background: var(--color-panel);
-  padding-top: 6px;
 }
 
 .response-viewer.collapsed {

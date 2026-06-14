@@ -2004,6 +2004,17 @@ textarea::placeholder {
   pointer-events: none;
 }
 
+.code-panel-corner-action {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 12px;
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
 .json-editor {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -2045,12 +2056,16 @@ textarea::placeholder {
 .json-editor-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   justify-content: flex-end;
 }
 
 .json-editor-actions button {
+  display: inline-flex;
   min-height: 30px;
+  align-items: center;
+  gap: 6px;
   padding: 0 10px;
   color: var(--color-text-secondary);
   font-size: 12px;

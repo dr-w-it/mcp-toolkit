@@ -157,6 +157,7 @@ const jsonTreeMaxChildrenPerNode = 100;
 const jsonTreeDefaultExpandedPathLimit = 120;
 const jsonTreeExpandedPathLimit = 500;
 const jsonPrimitivePreviewMaxLength = 12_000;
+const exampleOptionalFieldLimit = 3;
 const defaultSidebarSectionState: SidebarSectionState = {
   connections: false,
   savedRequests: false,
@@ -382,9 +383,13 @@ function createExampleValueFromSchema(schema: unknown, depth = 0): JsonValue {
   if (schemaType === "object" || isJsonObject(schema.properties)) {
     const requiredFields = getSchemaRequiredFields(schema);
     const properties = isJsonObject(schema.properties) ? schema.properties : {};
+    const exampleFields =
+      requiredFields.length > 0
+        ? requiredFields
+        : Object.keys(properties).slice(0, exampleOptionalFieldLimit);
     const example: JsonObject = {};
 
-    for (const field of requiredFields) {
+    for (const field of exampleFields) {
       example[field] = createExampleValueFromSchema(properties[field], depth + 1);
     }
 
@@ -392,6 +397,10 @@ function createExampleValueFromSchema(schema: unknown, depth = 0): JsonValue {
   }
 
   if (schemaType === "array") {
+    if ("items" in schema && schema.items !== undefined) {
+      return [createExampleValueFromSchema(schema.items, depth + 1)];
+    }
+
     return [];
   }
 
@@ -1213,6 +1222,7 @@ export function App() {
     formatJson(getDefaultToolInput(capabilitySummary.tools[0])),
   );
   const [toolInputError, setToolInputError] = useState<string | null>(null);
+  const [requestCopyStatus, setRequestCopyStatus] = useState<string | null>(null);
   const [isToolInputFocused, setIsToolInputFocused] = useState(false);
   const [toolExecution, setToolExecution] = useState<ExecuteToolCallResponse | null>(
     null,
@@ -1712,6 +1722,16 @@ export function App() {
 
     return () => window.clearTimeout(timeoutId);
   }, [responseCopyStatus]);
+
+  useEffect(() => {
+    if (!requestCopyStatus) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setRequestCopyStatus(null), 1800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [requestCopyStatus]);
 
   useEffect(() => {
     if (isLoadingSavedRequestRef.current) {
@@ -2412,32 +2432,76 @@ export function App() {
     setCapabilityFilter("");
   }
 
-  function readToolInputDraft() {
+  function validateToolInputDraft(draft: string) {
     let input: unknown;
 
     try {
-      input = JSON.parse(toolInputDraft);
+      input = JSON.parse(draft);
     } catch {
-      setToolInputError("Request input must be valid JSON.");
-      return undefined;
+      return {
+        error: "Request input must be valid JSON.",
+        input: undefined,
+      };
     }
 
     if (!isJsonObject(input)) {
-      setToolInputError("Request input must be a JSON object.");
-      return undefined;
+      return {
+        error: "Request input must be a JSON object.",
+        input: undefined,
+      };
     }
 
-    setToolInputError(null);
-    return input;
+    return {
+      error: null,
+      input,
+    };
   }
 
-  function handleGenerateExampleInput() {
-    setToolInputDraft(formatJson(createToolInputExample(selectedTool)));
-    setToolInputError(null);
+  function readToolInputDraft() {
+    const result = validateToolInputDraft(toolInputDraft);
+
+    setToolInputError(result.error);
+
+    return result.input;
+  }
+
+  function handleToolInputDraftChange(event: ChangeEvent<HTMLTextAreaElement>) {
+    const nextDraft = event.target.value;
+
+    setToolInputDraft(nextDraft);
+    setRequestCopyStatus(null);
+
+    if (toolInputError) {
+      setToolInputError(validateToolInputDraft(nextDraft).error);
+    }
 
     if (loadedSavedRequestId) {
       setHasLoadedSavedRequestChanges(true);
     }
+  }
+
+  function handleToolInputBlur() {
+    setIsToolInputFocused(false);
+    setToolInputError(validateToolInputDraft(toolInputDraft).error);
+  }
+
+  function handleGenerateExampleInput(options: { showRequestBody?: boolean } = {}) {
+    setToolInputDraft(formatJson(createToolInputExample(selectedTool)));
+    setToolInputError(null);
+    setRequestCopyStatus(null);
+
+    if (options.showRequestBody) {
+      setActiveEditorTab("request");
+    }
+
+    if (loadedSavedRequestId) {
+      setHasLoadedSavedRequestChanges(true);
+    }
+  }
+
+  async function handleCopyToolInput() {
+    await copyTextToClipboard(toolInputDraft);
+    setRequestCopyStatus("Copied request JSON");
   }
 
   function handleFormatToolInput() {
@@ -2452,6 +2516,7 @@ export function App() {
 
     setToolInputDraft(formatJson(parsedInput));
     setToolInputError(null);
+    setRequestCopyStatus(null);
 
     if (loadedSavedRequestId) {
       setHasLoadedSavedRequestChanges(true);
@@ -3631,9 +3696,17 @@ export function App() {
                       id="editor-tab-schema"
                       role="tabpanel"
                     >
-                      <span className="code-panel-corner-label">
-                        {activeCapabilityTab === "tools" ? "readonly" : "json"}
-                      </span>
+                      {activeCapabilityTab === "tools" && selectedTool ? (
+                        <button
+                          className="code-panel-corner-action"
+                          onClick={() => handleGenerateExampleInput({ showRequestBody: true })}
+                          type="button"
+                        >
+                          Generate Example
+                        </button>
+                      ) : (
+                        <span className="code-panel-corner-label">json</span>
+                      )}
                       <pre>{formatJson(detailPayload)}</pre>
                     </div>
                   ) : !isRequestCollapsed ? (
@@ -3659,7 +3732,16 @@ export function App() {
                               </small>
                             </div>
                             <div className="json-editor-actions">
-                              <button onClick={handleGenerateExampleInput} type="button">
+                              {requestCopyStatus ? (
+                                <small aria-live="polite" className="copy-status" role="status">
+                                  {requestCopyStatus}
+                                </small>
+                              ) : null}
+                              <button onClick={() => void handleCopyToolInput()} type="button">
+                                <Copy aria-hidden="true" size={14} strokeWidth={2.2} />
+                                Copy Input
+                              </button>
+                              <button onClick={() => handleGenerateExampleInput()} type="button">
                                 Generate Example
                               </button>
                               <button onClick={handleFormatToolInput} type="button">
@@ -3677,13 +3759,8 @@ export function App() {
                               aria-describedby={
                                 toolInputError ? "tool-input-error" : undefined
                               }
-                              onChange={(event) => {
-                                setToolInputDraft(event.target.value);
-                                if (loadedSavedRequestId) {
-                                  setHasLoadedSavedRequestChanges(true);
-                                }
-                              }}
-                              onBlur={() => setIsToolInputFocused(false)}
+                              onChange={handleToolInputDraftChange}
+                              onBlur={handleToolInputBlur}
                               onClick={() => setIsToolInputFocused(true)}
                               onFocus={() => setIsToolInputFocused(true)}
                               onPointerDown={() => setIsToolInputFocused(true)}

@@ -1467,6 +1467,14 @@ export function App() {
   const saveRequestActionLabel =
     loadedSavedRequest && hasLoadedSavedRequestChanges ? "Save changes" : "Save request";
   const selectedToolRequiredFields = getSchemaRequiredFields(selectedTool?.inputSchema);
+  const requestRequiredSummary =
+    selectedToolRequiredFields.length > 0
+      ? `Required: ${selectedToolRequiredFields.join(", ")}`
+      : "Required: none";
+  const requestBodySummary =
+    activeCapabilityTab === "tools" ? `Body · JSON · ${requestRequiredSummary}` : "Body · JSON";
+  const requestSchemaSummary =
+    activeCapabilityTab === "tools" ? `Schema · JSON · ${requestRequiredSummary}` : "Schema · JSON";
   const detailMetadata = [
     activeCapabilityTab === "tools"
       ? `${selectedToolParameterCounts.parameterCount} params`
@@ -3632,14 +3640,11 @@ export function App() {
                     <div>
                       <h3>Request</h3>
                       <div className="request-summary-line">
-                        <small>{activeEditorTab === "request" ? "body" : "schema"}</small>
-                        {activeCapabilityTab === "tools" ? (
-                          <small>
-                            {selectedToolRequiredFields.length > 0
-                              ? `${selectedToolRequiredFields.length} required`
-                              : "no required fields"}
-                          </small>
-                        ) : null}
+                        <small>
+                          {activeEditorTab === "request"
+                            ? requestBodySummary
+                            : requestSchemaSummary}
+                        </small>
                       </div>
                     </div>
                     <div className="request-header-actions">
@@ -3658,7 +3663,7 @@ export function App() {
                             role="tab"
                             type="button"
                           >
-                            {activeCapabilityTab === "tools" ? "Input schema" : "Definition"}
+                            {activeCapabilityTab === "tools" ? "Schema" : "Definition"}
                           </button>
                           <button
                             aria-controls="editor-tab-request"
@@ -3669,7 +3674,7 @@ export function App() {
                             role="tab"
                             type="button"
                           >
-                            Request Body
+                            Body
                           </button>
                         </div>
                       ) : null}
@@ -3702,34 +3707,24 @@ export function App() {
                           onClick={() => handleGenerateExampleInput({ showRequestBody: true })}
                           type="button"
                         >
-                          Generate Example
+                          Generate example
                         </button>
-                      ) : (
-                        <span className="code-panel-corner-label">json</span>
-                      )}
+                      ) : null}
                       <pre>{formatJson(detailPayload)}</pre>
                     </div>
                   ) : !isRequestCollapsed ? (
                     <div
                       aria-labelledby="editor-tab-request-button"
-                      className="editor-tab-panel"
+                      className="editor-tab-panel request-editor-panel"
                       id="editor-tab-request"
                       role="tabpanel"
                     >
-                      <div className="code-panel-header">
-                        <h3>Request Payload</h3>
-                        <span>json</span>
-                      </div>
                       {activeCapabilityTab === "tools" && selectedTool ? (
                         <div className="json-editor">
-                          <div className="json-editor-meta">
+                          <div className="json-editor-toolbar">
                             <div>
-                              <strong>Tool Input</strong>
-                              <small>
-                                {selectedToolRequiredFields.length > 0
-                                  ? `Required fields (${selectedToolRequiredFields.length}): ${selectedToolRequiredFields.join(", ")}`
-                                  : "No required fields"}
-                              </small>
+                              <strong>Tool input JSON</strong>
+                              <small>{requestRequiredSummary}</small>
                             </div>
                             <div className="json-editor-actions">
                               {requestCopyStatus ? (
@@ -3737,37 +3732,42 @@ export function App() {
                                   {requestCopyStatus}
                                 </small>
                               ) : null}
-                              <button onClick={() => void handleCopyToolInput()} type="button">
-                                <Copy aria-hidden="true" size={14} strokeWidth={2.2} />
-                                Copy Input
-                              </button>
                               <button onClick={() => handleGenerateExampleInput()} type="button">
-                                Generate Example
+                                Generate example
                               </button>
                               <button onClick={handleFormatToolInput} type="button">
                                 Format JSON
                               </button>
+                              <button
+                                aria-label="Copy tool input JSON"
+                                onClick={() => void handleCopyToolInput()}
+                                type="button"
+                              >
+                                <Copy aria-hidden="true" size={14} strokeWidth={2.2} />
+                                Copy input
+                              </button>
                             </div>
                           </div>
-                          <label
+                          <div
                             className={`json-editor-field ${
                               isToolInputFocused ? "focused" : ""
                             }`}
                           >
-                            <span>Tool input JSON</span>
                             <textarea
                               aria-describedby={
                                 toolInputError ? "tool-input-error" : undefined
                               }
+                              aria-label="Tool input JSON"
                               onChange={handleToolInputDraftChange}
                               onBlur={handleToolInputBlur}
                               onClick={() => setIsToolInputFocused(true)}
                               onFocus={() => setIsToolInputFocused(true)}
                               onPointerDown={() => setIsToolInputFocused(true)}
+                              placeholder="{\n  \n}"
                               spellCheck={false}
                               value={toolInputDraft}
                             />
-                          </label>
+                          </div>
                           {toolInputError ? (
                             <small className="inline-error" id="tool-input-error">
                               {toolInputError}

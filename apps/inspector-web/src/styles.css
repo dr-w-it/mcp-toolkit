@@ -471,7 +471,6 @@ textarea::placeholder {
 .section-header,
 .target-bar,
 .response-header,
-.code-panel-header,
 .key-value-header,
 .form-actions {
   display: flex;
@@ -1884,6 +1883,10 @@ textarea::placeholder {
   background: var(--color-panel);
 }
 
+.request-editor-panel {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .code-tab-panel {
   position: relative;
   grid-template-rows: minmax(0, 1fr);
@@ -1917,19 +1920,6 @@ textarea::placeholder {
 
 .code-panel:last-child {
   border-right: 0;
-}
-
-.code-panel-header {
-  min-height: 42px;
-  border-bottom: 1px solid var(--color-border);
-  padding: 0 14px;
-}
-
-.code-panel-header h3 {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .request-section-header,
@@ -1985,25 +1975,6 @@ textarea::placeholder {
   gap: 8px;
 }
 
-.code-panel-header span {
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.code-panel-corner-label {
-  position: absolute;
-  z-index: 1;
-  top: 12px;
-  right: 14px;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  pointer-events: none;
-}
-
 .code-panel-corner-action {
   position: absolute;
   z-index: 1;
@@ -2018,38 +1989,39 @@ textarea::placeholder {
 .json-editor {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 10px;
   min-height: 0;
-  padding: 14px;
+  padding: 12px 14px 14px;
   background: var(--color-panel);
 }
 
-.json-editor-meta {
+.json-editor-toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
+  min-height: 36px;
 }
 
-.json-editor-meta>div:first-child {
+.json-editor-toolbar>div:first-child {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
-.json-editor-meta strong {
+.json-editor-toolbar strong {
   color: var(--color-text);
   font-size: 13px;
   font-weight: 600;
 }
 
-.json-editor-meta small {
+.json-editor-toolbar small {
   max-width: 100%;
   overflow-wrap: anywhere;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -2073,22 +2045,14 @@ textarea::placeholder {
 
 .json-editor-field {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
-}
-
-.json-editor-field span {
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-weight: 650;
-  text-transform: uppercase;
 }
 
 .json-editor textarea {
   min-height: 0;
   height: 100%;
-  border-color: var(--color-border);
+  border-color: var(--color-sidebar-border);
   border-radius: 7px;
   background: var(--color-editor-background);
   color: var(--color-code-text);
@@ -2097,6 +2061,15 @@ textarea::placeholder {
   font-size: 13px;
   line-height: 1.6;
   tab-size: 2;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.json-editor textarea:hover {
+  border-color: var(--color-accent-border);
+}
+
+.json-editor textarea::placeholder {
+  color: var(--color-text-subtle);
 }
 
 .json-editor textarea:focus,

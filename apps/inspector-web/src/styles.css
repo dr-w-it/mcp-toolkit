@@ -2120,6 +2120,12 @@ textarea::placeholder {
   min-width: 0;
 }
 
+.response-header-actions button {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .secondary-button {
   display: inline-flex;
   min-height: 34px;
@@ -2240,7 +2246,10 @@ textarea::placeholder {
 }
 
 .view-toggle button {
+  display: inline-flex;
   min-height: 34px;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 0;
   padding: 0 13px;

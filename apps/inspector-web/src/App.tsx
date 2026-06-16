@@ -1464,6 +1464,9 @@ export function App() {
     activeCapabilityTab === "tools" &&
     Boolean(selectedTool) &&
     Boolean(selectedConnection);
+  const canGenerateExampleInput =
+    activeCapabilityTab === "tools" && Boolean(selectedTool);
+  const canUseToolActionMenu = canGenerateExampleInput || canSaveCurrentRequest;
   const saveRequestActionLabel =
     loadedSavedRequest && hasLoadedSavedRequestChanges ? "Save changes" : "Save request";
   const selectedToolRequiredFields = getSchemaRequiredFields(selectedTool?.inputSchema);
@@ -2674,6 +2677,11 @@ export function App() {
     openSaveRequestComposer();
   }
 
+  function handleGenerateExampleInputAction() {
+    setIsToolActionMenuOpen(false);
+    handleGenerateExampleInput({ showRequestBody: true });
+  }
+
   function handleLoadSavedRequest(savedRequest: SavedRequest) {
     isLoadingSavedRequestRef.current = true;
     setActiveCapabilityTab("tools");
@@ -3522,7 +3530,7 @@ export function App() {
                     aria-haspopup="menu"
                     aria-label="Tool request actions"
                     className="primary split-action-menu-button"
-                    disabled={!canSaveCurrentRequest || isSavingRequest}
+                    disabled={!canUseToolActionMenu}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
@@ -3539,6 +3547,15 @@ export function App() {
                   </button>
                   {isToolActionMenuOpen ? (
                     <div className="split-action-menu" role="menu">
+                      <button
+                        disabled={!canGenerateExampleInput}
+                        onClick={handleGenerateExampleInputAction}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <span>Generate example</span>
+                        <small>Tool input JSON</small>
+                      </button>
                       <button
                         disabled={!canSaveCurrentRequest || isSavingRequest}
                         onClick={handleSaveRequestAction}
@@ -3732,9 +3749,6 @@ export function App() {
                                   {requestCopyStatus}
                                 </small>
                               ) : null}
-                              <button onClick={() => handleGenerateExampleInput()} type="button">
-                                Generate example
-                              </button>
                               <button onClick={handleFormatToolInput} type="button">
                                 Format JSON
                               </button>
